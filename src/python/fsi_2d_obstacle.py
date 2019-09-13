@@ -302,7 +302,7 @@ def GetElementNodes2D(elementNumber,subElementNumber,localNodes2D,numberOfXNodes
             localNodes2D[4] = localNodes2D[localNodeIdx100] + numberOfXNodes1 + numberOfXNodes2 + 1
             localNodes2D[5] = localNodes2D[localNodeIdx100] + numberOfXNodes1
         else:
-	    localNodes2D[localNodeIdx010] = localNodes2D[localNodeIdx100] + 2
+            localNodes2D[localNodeIdx010] = localNodes2D[localNodeIdx100] + 2
             localNodes2D[localNodeIdx001] = localNodes2D[localNodeIdx100] + numberOfXNodes1 + numberOfXNodes2 + 2
             localNodes2D[3] = localNodes2D[localNodeIdx100] + 1
             localNodes2D[4] = localNodes2D[localNodeIdx100] + numberOfXNodes1 + 2
