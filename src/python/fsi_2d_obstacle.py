@@ -412,6 +412,9 @@ def SetNodeParameters1D(nodeNumber,field,xPosition,yPosition,xTangent,yTangent):
 import numpy,csv,time,sys,os,pdb
 from opencmiss.iron import iron
 
+
+path=os.path.dirname(os.path.abspath(__file__))
+
 # Ensure output directories exist
 if not os.path.exists('./output'):
     os.makedirs('./output')
@@ -1511,7 +1514,7 @@ if (problemType != SOLID):
     # Create CellML equations for the temporal fluid boundary conditions
     bcCellML = iron.CellML()
     bcCellML.CreateStart(bcCellMLUserNumber,fluidRegion)
-    bcCellMLIdx = bcCellML.ModelImport("input/exponentialrampupinletbc.cellml")
+    bcCellMLIdx = bcCellML.ModelImport(os.path.join(path,"input/exponentialrampupinletbc.cellml"))
     bcCellML.VariableSetAsKnown(bcCellMLIdx,"main/A")
     bcCellML.VariableSetAsKnown(bcCellMLIdx,"main/B")
     bcCellML.VariableSetAsKnown(bcCellMLIdx,"main/C")
