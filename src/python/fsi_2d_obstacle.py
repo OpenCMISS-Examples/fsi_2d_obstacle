@@ -26,6 +26,15 @@ VELOCITY = 2
 PRESSURE = 3
 REFPRESSURE = 4
 
+ST_VENANT_KIRCHOFF = 1
+MOONEY_RIVLIN = 2
+
+COMPRESSIBLE = 1
+INCOMPRESSIBLE = 2
+
+ANALYTIC = 1
+FINITE_DIFFERENCE = 2
+
 #================================================================================================================================
 #  User changeable example parameters
 #================================================================================================================================
@@ -33,19 +42,19 @@ REFPRESSURE = 4
 problemType = FSI
 #problemType = FLUID
 
-width = 3.0
-height = 1.5
+width = 3.0 # m
+height = 1.5 # m
 
-numberOfSolidXElements = 4
-numberOfSolidYElements = 8
-numberOfFluidX1Elements = 6
-numberOfFluidX2Elements = 10
-numberOfFluidYElements = 8
+numberOfSolidXElements = 1
+numberOfSolidYElements = 2
+numberOfFluidX1Elements = 1
+numberOfFluidX2Elements = 1
+numberOfFluidYElements = 1
 
-#uInterpolation = QUADRATIC_LAGRANGE
-#pInterpolation = LINEAR_LAGRANGE
-uInterpolation = QUADRATIC_SIMPLEX
-pInterpolation = LINEAR_SIMPLEX
+uInterpolation = QUADRATIC_LAGRANGE
+pInterpolation = LINEAR_LAGRANGE
+#uInterpolation = QUADRATIC_SIMPLEX
+#pInterpolation = LINEAR_SIMPLEX
 
 #RBS = False
 RBS = True
@@ -57,32 +66,55 @@ progressDiagnostics = True
 debugLevel = 3
 
 # Temporal information
-startTime = 0.0
-stopTime  = 10.0
-timeStep  = 0.1
+startTime = 0.0 # s
+stopTime  = 5.01 # s
+timeStep  = 0.1 # s
 
 # Inlet velocity parameters
-A = 0.5
-B = 2.0
-C = -0.5
+A = 0.5 # m s^-1
+#A = 0.0 # m s^-1
+B = 2.0 # dimensionless
+C = -0.5 # s^-1
 
 # Material properties
-fluidDynamicViscosity = 0.05  # kg / (m s)
-fluidDensity  = 100           # kg m^-3
-solidDensity  = 300           # kg m^-3
-mooneyRivlin1 = 2.0           # N / m^2
-mooneyRivlin2 = 4.0
+
+# Fluid
+fluidDynamicViscosity = 0.00089  # Pa s (kg m^-1 s^-1) - water
+fluidDensity  = 997.0            # kg m^-3 - water
+
+#Solid
+#solidMaterial = ST_VENANT_KIRCHOFF
+solidMaterial = MOONEY_RIVLIN
+#solidCompressibility = COMPRESSIBLE
+solidCompressibility = INCOMPRESSIBLE
+solidDensity  = 1100.0             # kg m^-3 - silicon rubber
+
+if (solidMaterial == ST_VENANT_KIRCHOFF):
+    poissonsRatio = 0.47 # dimensionless
+    youngsModulus = 1000000.0 # Pa (kg m^-1 s^-2) - silicon rubber
+    lameLambda = poissonsRatio*youngsModulus/((1.0+poissonsRatio)*(1.0-2.0*poissonsRatio))
+    lameMu = youngsModulus/(2.0*(1.0+poissonsRatio))    
+elif (solidMaterial == MOONEY_RIVLIN):
+    mooneyRivlin1 = 800000.0         # Pa (kg m^-1 s^-2) - silicon rubber
+    mooneyRivlin2 = -7000000.0       # Pa (kg m^-1 s^-2) - silicon rubber
+else:
+    print('Invalid solid material')
+    exit()
+
 # Moving mesh
 movingMeshKParameter   = 1.0       #default
 
-solidPRef = 0.0
-fluidPRef = 0.0
+fluidPInit = 0.0
+if (solidMaterial == MOONEY_RIVLIN):
+    solidPInit = -mooneyRivlin1 # Initial hydrostatic pressure
+else:
+    solidPInit = 0.0 # Initial hydrostatic pressure
 
-solidPInit = -mooneyRivlin1
-fluidPInit = fluidPRef
+solidPRef = solidPInit
+fluidPRef = fluidPInit
 
 # Set solver parameters
-fsiDynamicSolverTheta    = [1.0]
+fsiDynamicSolverThetas    = [2.0,1.0]
 nonlinearMaximumIterations      = 100000000 #default: 100000
 nonlinearRelativeTolerance      = 1.0E-4    #default: 1.0E-05
 nonlinearAbsoluteTolerance      = 1.0E-4    #default: 1.0E-10
@@ -93,6 +125,9 @@ linearRelativeTolerance      = 1.0E-4    #default: 1.0E-05
 linearAbsoluteTolerance      = 1.0E-4    #default: 1.0E-10
 linearDivergenceTolerance    = 1.0E5     #default: 1.0E5
 linearRestartValue           = 30        #default: 30
+
+#jacobianType = ANALYTIC
+jacobianType = FINITE_DIFFERENCE
 
 #================================================================================================================================
 #  Should not need to change anything below here.
@@ -193,6 +228,8 @@ else:
     localNodeIdx01 = numberOfNodesXi*(numberOfNodesXi-1)
     localNodeIdx11 = numberOfNodesXi*numberOfNodesXi-1
     
+contextUserNumber = 1
+
 solidCoordinateSystemUserNumber     = 1
 fluidCoordinateSystemUserNumber     = 2
 interfaceCoordinateSystemUserNumber = 3
@@ -213,7 +250,9 @@ movingMeshUserNumber    = 4
 solidDecompositionUserNumber     = 1
 fluidDecompositionUserNumber     = 2
 interfaceDecompositionUserNumber = 3
-          
+
+fsiDecomposerUserNumber = 1
+
 solidGeometricFieldUserNumber     = 11
 solidFibreFieldUserNumber     = 12
 solidEquationsSetFieldUserNumber = 13
@@ -368,39 +407,39 @@ def GetElementNodes1D(elementNumber,localNodes1D):
     return uNodes1D,pNodes1D
 
 def SetNodeParameters2D(nodeNumber,field,xPosition,yPosition):
-    field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                   1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,xPosition)
-    field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                   1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,yPosition)
+    field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                   1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,xPosition)
+    field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                   1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,yPosition)
     if (debugLevel > 2):
         print('      Node        %d:' % (nodeNumber))
         print('         Position         = [ %.2f, %.2f ]' % (xPosition,yPosition))                 
     if (uInterpolation == CUBIC_HERMITE):
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,1.0)
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,0.0)
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,0.0)
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,1.0)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,1.0)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,0.0)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,0.0)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,1.0)
         if (debugLevel > 2):
             print('        S1 derivative    = [ %.2f, %.2f ]' % (1.0,0.0))                 
             print('        S2 derivative    = [ %.2f, %.2f ]' % (0.0,1.0))                 
             
 def SetNodeParameters1D(nodeNumber,field,xPosition,yPosition,xTangent,yTangent):
-    field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                   1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,xPosition)
-    field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                   1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,yPosition)
+    field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                   1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,xPosition)
+    field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                   1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,yPosition)
     if (debugLevel > 2):
         print('      Node        %d:' % (nodeNumber))
         print('         Position         = [ %.2f, %.2f ]' % (xPosition,yPosition))                 
     if (uInterpolation == CUBIC_HERMITE):
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,xTangent)
-        field.ParameterSetUpdateNodeDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                       1,iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,yTangent)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,xTangent)
+        field.ParameterSetUpdateNodeDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                       1,oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,yTangent)
         if (debugLevel > 2):
             print('        S1 derivative    = [ %.2f, %.2f ]' % (xTangent,yTangent))                 
             
@@ -410,7 +449,14 @@ def SetNodeParameters1D(nodeNumber,field,xPosition,yPosition,xTangent,yTangent):
 
 # Import the libraries (OpenCMISS,python,numpy,scipy)
 import numpy,csv,time,sys,os,pdb
-from opencmiss.iron import iron
+from opencmiss.opencmiss import OpenCMISS_Python as oc
+
+# Diagnostics
+#oc.DiagnosticsSetOn(oc.DiagnosticTypes.ALL,[1,2,3,4,5],"Diagnostics",["Decomposer_GraphCalculate"])
+# Error Handling
+#oc.ErrorHandlingModeSet(oc.ErrorHandlingModes.TRAP_ERROR)
+# Output
+oc.OutputSetOn("Testing")
 
 
 path=os.path.dirname(os.path.abspath(__file__))
@@ -425,58 +471,65 @@ if not os.path.exists('./output/Solid'):
 if not os.path.exists('./output/Interface'):
     os.makedirs('./output/Interface')
 
-# Diagnostics
-#iron.DiagnosticsSetOn(iron.DiagnosticTypes.ALL,[1,2,3,4,5],"Diagnostics",[""])
-#iron.ErrorHandlingModeSet(iron.ErrorHandlingModes.TRAP_ERROR)
-iron.OutputSetOn("Testing")
+context = oc.Context()
+context.Create(contextUserNumber)
+
+worldRegion = oc.Region()
+context.WorldRegionGet(worldRegion)
 
 # Get the computational nodes info
-numberOfComputationalNodes = iron.ComputationalNumberOfNodesGet()
-computationalNodeNumber    = iron.ComputationalNodeNumberGet()
+computationEnvironment = oc.ComputationEnvironment()
+context.ComputationEnvironmentGet(computationEnvironment)
+
+worldWorkGroup = oc.WorkGroup()
+computationEnvironment.WorldWorkGroupGet(worldWorkGroup)
+numberOfComputationalNodes = worldWorkGroup.NumberOfGroupNodesGet()
+computationalNodeNumber = worldWorkGroup.GroupNodeNumberGet()
           
 #================================================================================================================================
 #  Initial Data & Default Values
 #================================================================================================================================
 
 # (NONE/TIMING/MATRIX/ELEMENT_MATRIX/NODAL_MATRIX)
-fluidEquationsSetOutputType = iron.EquationsSetOutputTypes.NONE
-#fluidEquationsSetOutputType = iron.EquationsSetOutputTypes.PROGRESS
-fluidEquationsOutputType = iron.EquationsOutputTypes.NONE
-#fluidEquationsOutputType = iron.EquationsOutputTypes.TIMING
-#fluidEquationsOutputType = iron.EquationsOutputTypes.MATRIX
-#fluidEquationsOutputType = iron.EquationsOutputTypes.ELEMENT_MATRIX
-solidEquationsSetOutputType = iron.EquationsSetOutputTypes.NONE
-#solidEquationsSetOutputType = iron.EquationsSetOutputTypes.PROGRESS
-solidEquationsOutputType = iron.EquationsOutputTypes.NONE
-#solidEquationsOutputType = iron.EquationsOutputTypes.TIMING
-#solidEquationsOutputType = iron.EquationsOutputTypes.MATRIX
-#solidEquationsOutputType = iron.EquationsOutputTypes.ELEMENT_MATRIX
-movingMeshEquationsSetOutputType = iron.EquationsSetOutputTypes.NONE
-#movingMeshEquationsSetOutputType = iron.EquationsSetOutputTypes.PROGRESS
-movingMeshEquationsOutputType = iron.EquationsOutputTypes.NONE
-#movingMeshEquationsOutputType = iron.EquationsOutputTypes.TIMING
-#movingMeshEquationsOutputType = iron.EquationsOutputTypes.MATRIX
-#movingMeshEquationsOutputType = iron.EquationsOutputTypes.ELEMENT_MATRIX
-interfaceConditionOutputType = iron.InterfaceConditionOutputTypes.NONE
-#interfaceConditionOutputType = iron.InterfaceConditionOutputTypes.PROGRESS
-interfaceEquationsOutputType = iron.EquationsOutputTypes.NONE
-#interfaceEquationsOutputType = iron.EquationsOutputTypes.TIMING
-#interfaceEquationsOutputType = iron.EquationsOutputTypes.PROGRESS
-#interfaceEquationsOutputType = iron.EquationsOutputTypes.MATRIX
-#interfaceEquationsOutputType = iron.EquationsOutputTypes.ELEMENT_MATRIX
+fluidEquationsSetOutputType = oc.EquationsSetOutputTypes.NONE
+fluidEquationsSetOutputType = oc.EquationsSetOutputTypes.PROGRESS
+fluidEquationsOutputType = oc.EquationsOutputTypes.NONE
+#fluidEquationsOutputType = oc.EquationsOutputTypes.TIMING
+fluidEquationsOutputType = oc.EquationsOutputTypes.MATRIX
+#fluidEquationsOutputType = oc.EquationsOutputTypes.ELEMENT_MATRIX
+solidEquationsSetOutputType = oc.EquationsSetOutputTypes.NONE
+solidEquationsSetOutputType = oc.EquationsSetOutputTypes.PROGRESS
+solidEquationsOutputType = oc.EquationsOutputTypes.NONE
+#solidEquationsOutputType = oc.EquationsOutputTypes.TIMING
+solidEquationsOutputType = oc.EquationsOutputTypes.MATRIX
+#solidEquationsOutputType = oc.EquationsOutputTypes.ELEMENT_MATRIX
+movingMeshEquationsSetOutputType = oc.EquationsSetOutputTypes.NONE
+#movingMeshEquationsSetOutputType = oc.EquationsSetOutputTypes.PROGRESS
+movingMeshEquationsOutputType = oc.EquationsOutputTypes.NONE
+#movingMeshEquationsOutputType = oc.EquationsOutputTypes.TIMING
+#movingMeshEquationsOutputType = oc.EquationsOutputTypes.MATRIX
+#movingMeshEquationsOutputType = oc.EquationsOutputTypes.ELEMENT_MATRIX
+interfaceConditionOutputType = oc.InterfaceConditionOutputTypes.NONE
+interfaceConditionOutputType = oc.InterfaceConditionOutputTypes.PROGRESS
+interfaceEquationsOutputType = oc.EquationsOutputTypes.NONE
+#interfaceEquationsOutputType = oc.EquationsOutputTypes.TIMING
+#interfaceEquationsOutputType = oc.EquationsOutputTypes.PROGRESS
+interfaceEquationsOutputType = oc.EquationsOutputTypes.MATRIX
+#interfaceEquationsOutputType = oc.EquationsOutputTypes.ELEMENT_MATRIX
 # (NoOutput/ProgressOutput/TimingOutput/SolverOutput/SolverMatrixOutput)
-movingMeshLinearSolverOutputType = iron.SolverOutputTypes.NONE
-#movingMeshLinearSolverOutputType = iron.SolverOutputTypes.PROGRESS
-#movingMeshLinearSolverOutputType = iron.SolverOutputTypes.MATRIX
-#fsiDynamicSolverOutputType = iron.SolverOutputTypes.NONE
-fsiDynamicSolverOutputType = iron.SolverOutputTypes.MONITOR
-#fsiDynamicSolverOutputType = iron.SolverOutputTypes.MATRIX
-#fsiNonlinearSolverOutputType = iron.SolverOutputTypes.NONE
-fsiNonlinearSolverOutputType = iron.SolverOutputTypes.PROGRESS
-#fsiNonlinearSolverOutputType = iron.SolverOutputTypes.MATRIX
-#fsiLinearSolverOutputType = iron.SolverOutputTypes.NONE
-fsiLinearSolverOutputType = iron.SolverOutputTypes.PROGRESS
-#fsiLinearSolverOutputType = iron.SolverOutputTypes.MATRIX
+movingMeshLinearSolverOutputType = oc.SolverOutputTypes.NONE
+#movingMeshLinearSolverOutputType = oc.SolverOutputTypes.PROGRESS
+#movingMeshLinearSolverOutputType = oc.SolverOutputTypes.MATRIX
+#fsiDynamicSolverOutputType = oc.SolverOutputTypes.NONE
+fsiDynamicSolverOutputType = oc.SolverOutputTypes.MONITOR
+fsiDynamicSolverOutputType = oc.SolverOutputTypes.MATRIX
+#fsiNonlinearSolverOutputType = oc.SolverOutputTypes.NONE
+fsiNonlinearSolverOutputType = oc.SolverOutputTypes.MONITOR
+#fsiNonlinearSolverOutputType = oc.SolverOutputTypes.PROGRESS
+fsiNonlinearSolverOutputType = oc.SolverOutputTypes.MATRIX
+fsiLinearSolverOutputType = oc.SolverOutputTypes.NONE
+#fsiLinearSolverOutputType = oc.SolverOutputTypes.PROGRESS
+#fsiLinearSolverOutputType = oc.SolverOutputTypes.MATRIX
 
 if (setupOutput):
     print('SUMMARY')
@@ -500,9 +553,15 @@ if (setupOutput):
     if (problemType != FLUID):
         print('    Solid:')
         print('      Density: {0:.3f}'.format(solidDensity))
-        print('      Mooney Rivlin 1: {0:.3f}'.format(mooneyRivlin1))
-        print('      Mooney Rivlin 2: {0:.3f}'.format(mooneyRivlin2))
-        print(' ')
+        if (solidMaterial == ST_VENANT_KIRCHOFF):
+            print('      Material: St-Venant-Kirchoff')
+            print('      Lame lambda: {0:.3f}'.format(lameLambda))
+            print('      Lame mu: {0:.3f}'.format(lameMu))
+        elif (solidMaterial == MOONEY_RIVLIN):
+            print('      Material: Mooney-Rivlin')
+            print('      Mooney Rivlin 1: {0:.3f}'.format(mooneyRivlin1))
+            print('      Mooney Rivlin 2: {0:.3f}'.format(mooneyRivlin2))
+    print(' ')
     print('  Mesh parameters')
     print('  -------------------')
     print(' ')
@@ -551,26 +610,26 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):
     # Create a RC coordinate system for the solid region
-    solidCoordinateSystem = iron.CoordinateSystem()
-    solidCoordinateSystem.CreateStart(solidCoordinateSystemUserNumber)
+    solidCoordinateSystem = oc.CoordinateSystem()
+    solidCoordinateSystem.CreateStart(solidCoordinateSystemUserNumber,context)
     solidCoordinateSystem.DimensionSet(numberOfDimensions)
     solidCoordinateSystem.CreateFinish()
 if (problemType != SOLID):
     # Create a RC coordinate system for the fluid region
-    fluidCoordinateSystem = iron.CoordinateSystem()
-    fluidCoordinateSystem.CreateStart(fluidCoordinateSystemUserNumber)
+    fluidCoordinateSystem = oc.CoordinateSystem()
+    fluidCoordinateSystem.CreateStart(fluidCoordinateSystemUserNumber,context)
     fluidCoordinateSystem.DimensionSet(numberOfDimensions)
     fluidCoordinateSystem.CreateFinish()
 if (problemType == FSI):
     # Create a RC coordinate system for the interface region
-    interfaceCoordinateSystem = iron.CoordinateSystem()
-    interfaceCoordinateSystem.CreateStart(interfaceCoordinateSystemUserNumber)
+    interfaceCoordinateSystem = oc.CoordinateSystem()
+    interfaceCoordinateSystem.CreateStart(interfaceCoordinateSystemUserNumber,context)
     interfaceCoordinateSystem.DimensionSet(numberOfDimensions)
     interfaceCoordinateSystem.CreateFinish()
-    
+              
 if (progressDiagnostics):
     print('Coordinate systems ... Done')
-    
+              
 #================================================================================================================================
 #  Regions
 #================================================================================================================================
@@ -580,67 +639,67 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):
     # Create a solid region
-    solidRegion = iron.Region()
-    solidRegion.CreateStart(solidRegionUserNumber,iron.WorldRegion)
+    solidRegion = oc.Region()
+    solidRegion.CreateStart(solidRegionUserNumber,worldRegion)
     solidRegion.label = 'SolidRegion'
     solidRegion.coordinateSystem = solidCoordinateSystem
     solidRegion.CreateFinish()
 if (problemType != SOLID):
     # Create a fluid region
-    fluidRegion = iron.Region()
-    fluidRegion.CreateStart(fluidRegionUserNumber,iron.WorldRegion)
+    fluidRegion = oc.Region()
+    fluidRegion.CreateStart(fluidRegionUserNumber,worldRegion)
     fluidRegion.label = 'FluidRegion'
     fluidRegion.coordinateSystem = fluidCoordinateSystem
     fluidRegion.CreateFinish()
-    
+              
 if (progressDiagnostics):
     print('Regions ... Done')
-
+    
 #================================================================================================================================
 #  Bases
 #================================================================================================================================
 
 if (progressDiagnostics):
     print('Basis functions ...')
-          
-pBasis = iron.Basis()
-pBasis.CreateStart(pBasisUserNumber)
+              
+pBasis = oc.Basis()
+pBasis.CreateStart(pBasisUserNumber,context)
 pBasis.NumberOfXiSet(numberOfDimensions)
 if (simplex):
-    pBasis.TypeSet(iron.BasisTypes.SIMPLEX)
-    pBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfDimensions)
+    pBasis.TypeSet(oc.BasisTypes.SIMPLEX)
+    pBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfDimensions)
     pBasis.QuadratureOrderSet(gaussOrder)
 else:
-    pBasis.TypeSet(iron.BasisTypes.LAGRANGE_HERMITE_TP)
-    pBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfDimensions)
+    pBasis.TypeSet(oc.BasisTypes.LAGRANGE_HERMITE_TP)
+    pBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfDimensions)
     pBasis.QuadratureNumberOfGaussXiSet([numberOfGaussXi]*numberOfDimensions)
 pBasis.CreateFinish()
 
-uBasis = iron.Basis()
-uBasis.CreateStart(uBasisUserNumber)
+uBasis = oc.Basis()
+uBasis.CreateStart(uBasisUserNumber,context)
 uBasis.NumberOfXiSet(numberOfDimensions)
 if (simplex):
-    uBasis.TypeSet(iron.BasisTypes.SIMPLEX)
+    uBasis.TypeSet(oc.BasisTypes.SIMPLEX)
     if (uInterpolation == LINEAR_SIMPLEX):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfDimensions)
     elif (uInterpolation == QUADRATIC_SIMPLEX):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.QUADRATIC_SIMPLEX]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.QUADRATIC_SIMPLEX]*numberOfDimensions)
     elif (uInterpolation == CUBIC_SIMPLEX):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_SIMPLEX]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_SIMPLEX]*numberOfDimensions)
     else:
         print('Invalid u interpolation for simplex')
         exit()
     uBasis.QuadratureOrderSet(gaussOrder)
 else:
-    uBasis.TypeSet(iron.BasisTypes.LAGRANGE_HERMITE_TP)
+    uBasis.TypeSet(oc.BasisTypes.LAGRANGE_HERMITE_TP)
     if (uInterpolation == LINEAR_LAGRANGE):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfDimensions)
     elif (uInterpolation == QUADRATIC_LAGRANGE):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.QUADRATIC_LAGRANGE]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.QUADRATIC_LAGRANGE]*numberOfDimensions)
     elif (uInterpolation == CUBIC_LAGRANGE):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_LAGRANGE]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_LAGRANGE]*numberOfDimensions)
     elif (uInterpolation == CUBIC_HERMITE):
-        uBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_HERMITE]*numberOfDimensions)
+        uBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_HERMITE]*numberOfDimensions)
     else:
         print('Invalid u interpolation for non simplex')
         exit()
@@ -648,31 +707,31 @@ else:
 uBasis.CreateFinish()
 
 if (problemType == FSI):
-    interfaceBasis = iron.Basis()
-    interfaceBasis.CreateStart(interfaceBasisUserNumber)
+    interfaceBasis = oc.Basis()
+    interfaceBasis.CreateStart(interfaceBasisUserNumber,context)
     interfaceBasis.NumberOfXiSet(numberOfInterfaceDimensions)
     if (simplex):
-        interfaceBasis.TypeSet(iron.BasisTypes.SIMPLEX)
+        interfaceBasis.TypeSet(oc.BasisTypes.SIMPLEX)
         if (uInterpolation == LINEAR_SIMPLEX):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_SIMPLEX]*numberOfInterfaceDimensions)
         elif (uInterpolation == QUADRATIC_SIMPLEX):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.QUADRATIC_SIMPLEX]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.QUADRATIC_SIMPLEX]*numberOfInterfaceDimensions)
         elif (uInterpolation == CUBIC_SIMPLEX):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_SIMPLEX]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_SIMPLEX]*numberOfInterfaceDimensions)
         else:
             print('Invalid u interpolation for simplex')
             exit()
         interfaceBasis.QuadratureOrderSet(gaussOrder)
     else:
-        interfaceBasis.Type(iron.BasisTypes.LAGRANGE_HERMITE_TP)
+        interfaceBasis.TypeSet(oc.BasisTypes.LAGRANGE_HERMITE_TP)
         if (uInterpolation == LINEAR_LAGRANGE):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.LINEAR_LAGRANGE]*numberOfInterfaceDimensions)
         elif (uInterpolation == QUADRATIC_LAGRANGE):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.QUADRATIC_LAGRANGE]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.QUADRATIC_LAGRANGE]*numberOfInterfaceDimensions)
         elif (uInterpolation == CUBIC_LAGRANGE):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_LAGRANGE]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_LAGRANGE]*numberOfInterfaceDimensions)
         elif (uInterpolation == CUBIC_HERMITE):
-            interfaceBasis.InterpolationXiSet([iron.BasisInterpolationSpecifications.CUBIC_HERMITE]*numberOfInterfaceDimensions)
+            interfaceBasis.InterpolationXiSet([oc.BasisInterpolationSpecifications.CUBIC_HERMITE]*numberOfInterfaceDimensions)
         else:
             print('Invalid u interpolation for non simplex')
             exit()
@@ -681,34 +740,34 @@ if (problemType == FSI):
 
 if (progressDiagnostics):
     print('Basis functions ... Done')
-  
+    
 #================================================================================================================================
 #  Mesh
 #================================================================================================================================
 
 if (progressDiagnostics):
     print('Meshes ...')    
-                   
+              
 pNodes2D = [0]*4
 uNodes2D = [0]*numberOfLocalNodes
 localNodes2D = [0]*numberOfLocalNodes
 
 if (problemType != FLUID):
-    solidNodes = iron.Nodes()
+    solidNodes = oc.Nodes()
     solidNodes.CreateStart(solidRegion,numberOfSolidNodes)
     solidNodes.CreateFinish()
-
-    solidMesh = iron.Mesh()
+    
+    solidMesh = oc.Mesh()
     solidMesh.CreateStart(solidMeshUserNumber,solidRegion,numberOfDimensions)
     solidMesh.NumberOfElementsSet(numberOfSolidElements)
     solidMesh.NumberOfComponentsSet(2)
-
-    solidUElements = iron.MeshElements()
+    
+    solidUElements = oc.MeshElements()
     solidUElements.CreateStart(solidMesh,1,uBasis)
     
-    solidPElements = iron.MeshElements()
+    solidPElements = oc.MeshElements()
     solidPElements.CreateStart(solidMesh,2,pBasis)
-                
+    
     # Solid mesh elements
     if (debugLevel > 2):
         print('  Solid Elements:')
@@ -717,32 +776,32 @@ if (problemType != FLUID):
             for subElementIdx in range(1,numberOfSubElements+1):
                 elementNumber = subElementIdx+((xElementIdx-1)+(yElementIdx-1)*numberOfSolidXElements)*numberOfSubElements
                 localNodes2D[localNodeIdx00]=(xElementIdx-1)*(numberOfNodesXi-1)+1+ \
-                                              (yElementIdx-1)*(numberOfNodesXi-1)*(numberOfSolidXNodes)
+                    (yElementIdx-1)*(numberOfNodesXi-1)*(numberOfSolidXNodes)
                 [uNodes2D,pNodes2D] = GetElementNodes2D(elementNumber,subElementIdx,localNodes2D,numberOfSolidXNodes,numberOfSolidXNodes)
                 solidUElements.NodesSet(elementNumber,uNodes2D)
                 solidPElements.NodesSet(elementNumber,pNodes2D)
-
+                
     solidUElements.CreateFinish()
     solidPElements.CreateFinish()
 
     solidMesh.CreateFinish()
 
 if (problemType != SOLID):
-    fluidNodes = iron.Nodes()
+    fluidNodes = oc.Nodes()
     fluidNodes.CreateStart(fluidRegion,numberOfFluidNodes)
     fluidNodes.CreateFinish()
-
-    fluidMesh = iron.Mesh()
+    
+    fluidMesh = oc.Mesh()
     fluidMesh.CreateStart(fluidMeshUserNumber,fluidRegion,numberOfDimensions)
     fluidMesh.NumberOfElementsSet(numberOfFluidElements)
     fluidMesh.NumberOfComponentsSet(2)
 
-    fluidUElements = iron.MeshElements()
+    fluidUElements = oc.MeshElements()
     fluidUElements.CreateStart(fluidMesh,1,uBasis)
-    
-    fluidPElements = iron.MeshElements()
+              
+    fluidPElements = oc.MeshElements()
     fluidPElements.CreateStart(fluidMesh,2,pBasis)
-                        
+              
     # Fluid mesh elements
     if (debugLevel > 2):
         print('  Fluid Elements:')
@@ -752,7 +811,7 @@ if (problemType != SOLID):
             for subElementIdx in range(1,numberOfSubElements+1):
                 elementNumber = subElementIdx+(xElementIdx-1)*numberOfSubElements+(yElementIdx-1)*numberOfFluidXElements2
                 localNodes2D[localNodeIdx00] = (xElementIdx-1)*(numberOfNodesXi-1)+1+\
-                                               (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes2
+                    (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes2
                 [uNodes2D,pNodes2D] = GetElementNodes2D(elementNumber,subElementIdx,localNodes2D,numberOfFluidXNodes2,numberOfFluidXNodes2)
                 fluidUElements.NodesSet(elementNumber,uNodes2D)
                 fluidPElements.NodesSet(elementNumber,pNodes2D)
@@ -760,9 +819,9 @@ if (problemType != SOLID):
         for xElementIdx in range(1,numberOfFluidX2Elements+1):
             for subElementIdx in range(1,numberOfSubElements+1):
                 elementNumber = numberOfFluidX1Elements*numberOfSubElements+subElementIdx+(xElementIdx-1)*numberOfSubElements+\
-                                (yElementIdx-1)*numberOfFluidXElements2
+                    (yElementIdx-1)*numberOfFluidXElements2
                 localNodes2D[localNodeIdx00] = numberOfFluidX1Nodes+(xElementIdx-1)*(numberOfNodesXi-1)+1+\
-                                               (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes2
+                    (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes2
                 if(yElementIdx == numberOfSolidYElements):
                     [uNodes2D,pNodes2D] = GetElementNodes2D(elementNumber,subElementIdx,localNodes2D,numberOfFluidXNodes2,numberOfFluidXNodes1)
                 else: 
@@ -774,10 +833,10 @@ if (problemType != SOLID):
         for xElementIdx in range(1,numberOfFluidX1Elements+numberOfSolidXElements+numberOfFluidX2Elements+1):
             for subElementIdx in range(1,numberOfSubElements+1):
                 elementNumber = numberOfFluidXElements2*numberOfSolidYElements+subElementIdx+(xElementIdx-1)*numberOfSubElements+\
-                                (yElementIdx-1)*numberOfFluidXElements1
+                    (yElementIdx-1)*numberOfFluidXElements1
                 localNodes2D[localNodeIdx00] = numberOfFluidXNodes2*(numberOfSolidYNodes-1)+ \
-                                            (xElementIdx-1)*(numberOfNodesXi-1)+1+\
-                                            (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes1
+                    (xElementIdx-1)*(numberOfNodesXi-1)+1+\
+                    (yElementIdx-1)*(numberOfNodesXi-1)*numberOfFluidXNodes1
                 [uNodes2D,pNodes2D] = GetElementNodes2D(elementNumber,subElementIdx,localNodes2D,numberOfFluidXNodes1,numberOfFluidXNodes1)
                 fluidUElements.NodesSet(elementNumber,uNodes2D)
                 fluidPElements.NodesSet(elementNumber,pNodes2D)
@@ -797,20 +856,20 @@ if (progressDiagnostics):
 if (problemType == FSI):
     if (progressDiagnostics):
         print('Interface ...')
-    
-        # Create an interface between the two meshes
-        interface = iron.Interface()
-        interface.CreateStart(interfaceUserNumber,iron.WorldRegion)
-        interface.LabelSet('Interface')
-        # Add in the two meshes
-        solidMeshIndex = interface.MeshAdd(solidMesh)
-        fluidMeshIndex = interface.MeshAdd(fluidMesh)
-        interface.CoordinateSystemSet(interfaceCoordinateSystem)
-        interface.CreateFinish()
-        
+              
+    # Create an interface between the two meshes
+    interface = oc.Interface()
+    interface.CreateStart(interfaceUserNumber,worldRegion)
+    interface.LabelSet('Interface')
+    # Add in the two meshes
+    solidMeshIndex = interface.MeshAdd(solidMesh)
+    fluidMeshIndex = interface.MeshAdd(fluidMesh)
+    interface.CoordinateSystemSet(interfaceCoordinateSystem)
+    interface.CreateFinish()
+              
     if (progressDiagnostics):
         print('Interface ... Done')
-            
+              
 #================================================================================================================================
 #  Interface Mesh
 #================================================================================================================================
@@ -818,24 +877,24 @@ if (problemType == FSI):
 if (problemType == FSI):
     if (progressDiagnostics):
         print('Interface Mesh ...')
-    
+              
     pNodes1D = [0]*2
     uNodes1D = [0]*numberOfLocalInterfaceNodes
     localNodes1D = [0]*numberOfLocalInterfaceNodes
 
     # Create an interface mesh
-    InterfaceNodes = iron.Nodes()
+    InterfaceNodes = oc.Nodes()
     InterfaceNodes.CreateStartInterface(interface,numberOfInterfaceNodes)
     InterfaceNodes.CreateFinish()
-    
-    interfaceMesh = iron.Mesh()
+              
+    interfaceMesh = oc.Mesh()
     interfaceMesh.CreateStartInterface(interfaceMeshUserNumber,interface,numberOfInterfaceDimensions)
     interfaceMesh.NumberOfElementsSet(numberOfInterfaceElements)
     interfaceMesh.NumberOfComponentsSet(1)
-    
-    interfaceElements = iron.MeshElements()
+              
+    interfaceElements = oc.MeshElements()
     interfaceElements.CreateStart(interfaceMesh,1,interfaceBasis)
-        
+              
     if (debugLevel > 2):
         print('  Interface Elements:')
     elementNumber = 0
@@ -844,14 +903,14 @@ if (problemType == FSI):
         localNodes1D[localNodeIdx00] = (interfaceElementIdx-1)*(numberOfNodesXi-1)+1
         [uNodes1D,pNodes1D] = GetElementNodes1D(elementNumber,localNodes1D)
         interfaceElements.NodesSet(elementNumber,uNodes1D)
-
+        
     interfaceElements.CreateFinish()
 
     interfaceMesh.CreateFinish()
 
     if (progressDiagnostics):
         print('Interface Mesh ... Done')
-    
+              
 
 #================================================================================================================================
 #  Mesh Connectivity
@@ -862,10 +921,10 @@ if (problemType == FSI):
         print('Interface Mesh Connectivity ...')
 
     # Couple the interface meshes
-    interfaceMeshConnectivity = iron.InterfaceMeshConnectivity()
+    interfaceMeshConnectivity = oc.InterfaceMeshConnectivity()
     interfaceMeshConnectivity.CreateStart(interface,interfaceMesh)
     interfaceMeshConnectivity.BasisSet(interfaceBasis)
-        
+              
     interfaceElementNumber = 0
     interfaceNodes = [0]*(numberOfInterfaceNodes)
     solidNodes = [0]*(numberOfInterfaceNodes)
@@ -928,7 +987,7 @@ if (problemType == FSI):
             print('  Interface Element %8d:' % (interfaceElementNumber))        
         solidElementNumber = 1+(interfaceElementIdx-1)*numberOfSubElements + numberOfSolidXElements*numberOfSubElements*(numberOfSolidYElements-1)
         fluidElementNumber = numberOfSubElements + (interfaceElementIdx-1)*numberOfSubElements + \
-                             (numberOfFluidX1Elements*numberOfSubElements + numberOfFluidXElements2*numberOfSolidYElements)
+            (numberOfFluidX1Elements*numberOfSubElements + numberOfFluidXElements2*numberOfSolidYElements)
         # Map interface elements
         interfaceMeshConnectivity.ElementNumberSet(interfaceElementNumber,solidMeshIndex,solidElementNumber)
         interfaceMeshConnectivity.ElementNumberSet(interfaceElementNumber,fluidMeshIndex,fluidElementNumber)
@@ -981,18 +1040,18 @@ if (problemType == FSI):
             print('  Interface Element %8d:' % (interfaceElementNumber))
         solidElementNumber = (numberOfSolidYElements - interfaceElementIdx + 1)*numberOfSolidXElements*numberOfSubElements
         fluidElementNumber = (numberOfSolidYElements - interfaceElementIdx)*numberOfFluidXElements2 + \
-                             numberOfFluidX1Elements*numberOfSubElements + 1
+        numberOfFluidX1Elements*numberOfSubElements + 1
         # Map interface elements
         interfaceMeshConnectivity.ElementNumberSet(interfaceElementNumber,solidMeshIndex,solidElementNumber)
         interfaceMeshConnectivity.ElementNumberSet(interfaceElementNumber,fluidMeshIndex,fluidElementNumber)
         if (debugLevel > 2):
             print('    Solid Element %8d; Fluid Element %8d' % (solidElementNumber,fluidElementNumber))        
         localInterfaceNodes[0] = (interfaceElementIdx-1)*(numberOfNodesXi-1) + \
-                                 (numberOfSolidXElements + numberOfSolidYElements)*(numberOfNodesXi - 1) + 1
+            (numberOfSolidXElements + numberOfSolidYElements)*(numberOfNodesXi - 1) + 1
         localSolidNodes[0] = (numberOfSolidXElements*(numberOfNodesXi-1) + 1)* \
-                             ((numberOfSolidYElements - interfaceElementIdx + 1)*(numberOfNodesXi-1)+1)
+            ((numberOfSolidYElements - interfaceElementIdx + 1)*(numberOfNodesXi-1)+1)
         localFluidNodes[0] = numberOfFluidXNodes2*(numberOfSolidYElements - interfaceElementIdx + 1)*(numberOfNodesXi-1) + \
-                             numberOfFluidX1Nodes + offset
+            numberOfFluidX1Nodes + offset
         if (uInterpolation == QUADRATIC_LAGRANGE or uInterpolation == QUADRATIC_SIMPLEX):
             localInterfaceNodes[1] = localInterfaceNodes[0]+1
             localSolidNodes[1] = localSolidNodes[0] - numberOfSolidXNodes 
@@ -1028,7 +1087,7 @@ if (problemType == FSI):
                 print('      Fluid node        %8d; Fluid xi = [%.2f, %.2f ]' % (localFluidNodes[localNodeIdx],fluidXi[0],fluidXi[1]))
     # Map interface nodes
     interfaceMeshConnectivity.NodeNumberSet(interfaceNodes,solidMeshIndex,solidNodes,fluidMeshIndex,fluidNodes)        
-
+    
     interfaceMeshConnectivity.CreateFinish()
 
     if (progressDiagnostics):
@@ -1040,36 +1099,58 @@ if (problemType == FSI):
 
 if (progressDiagnostics):
     print('Decomposition ...')
-    
+              
 if (problemType != FLUID):
     # Create a decomposition for the solid mesh
-    solidDecomposition = iron.Decomposition()
+    solidDecomposition = oc.Decomposition()
     solidDecomposition.CreateStart(solidDecompositionUserNumber,solidMesh)
-    solidDecomposition.TypeSet(iron.DecompositionTypes.CALCULATED)
-    solidDecomposition.NumberOfDomainsSet(numberOfComputationalNodes)
     solidDecomposition.CalculateFacesSet(True)
     solidDecomposition.CreateFinish()
 
 if (problemType != SOLID):
     # Create a decomposition for the fluid mesh
-    fluidDecomposition = iron.Decomposition()
+    fluidDecomposition = oc.Decomposition()
     fluidDecomposition.CreateStart(fluidDecompositionUserNumber,fluidMesh)
-    fluidDecomposition.TypeSet(iron.DecompositionTypes.CALCULATED)
-    fluidDecomposition.NumberOfDomainsSet(numberOfComputationalNodes)
     fluidDecomposition.CalculateFacesSet(True)
     fluidDecomposition.CreateFinish()
 
 if (problemType == FSI):
     # Create a decomposition for the interface mesh
-    interfaceDecomposition = iron.Decomposition()
+    interfaceDecomposition = oc.Decomposition()
     interfaceDecomposition.CreateStart(interfaceDecompositionUserNumber,interfaceMesh)
-    interfaceDecomposition.TypeSet(iron.DecompositionTypes.CALCULATED)
-    interfaceDecomposition.NumberOfDomainsSet(numberOfComputationalNodes)
     interfaceDecomposition.CreateFinish()
 
 if (progressDiagnostics):
     print('Decomposition ... Done')
-    
+              
+#================================================================================================================================
+#  Decomposer
+#================================================================================================================================
+
+if (progressDiagnostics):
+    print('Decomposer ...')
+              
+fsiDecomposer = oc.Decomposer()
+fsiDecomposer.CreateStart(fsiDecomposerUserNumber,worldRegion,worldWorkGroup)
+
+if (problemType != FLUID):
+    # Add in solid mesh
+    solidDecompositionIndex = fsiDecomposer.DecompositionAdd(solidDecomposition)
+
+if (problemType != SOLID):
+    # Add in the fluid mesh
+    fluidDecompositionIndex = fsiDecomposer.DecompositionAdd(fluidDecomposition)
+
+if (problemType == FSI):
+    # Add in the interface mesh
+    interfaceDecompositionIndex = fsiDecomposer.DecompositionAdd(interfaceDecomposition)
+
+fsiDecomposer.OutputTypeSet(oc.DecomposerOutputTypes.ALL)    
+fsiDecomposer.CreateFinish()
+              
+if (progressDiagnostics):
+    print('Decomposer ... Done')
+              
 #================================================================================================================================
 #  Geometric Field
 #================================================================================================================================
@@ -1079,65 +1160,64 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):    
     # Start to create a default (geometric) field on the solid region
-    solidGeometricField = iron.Field()
+    solidGeometricField = oc.Field()
     solidGeometricField.CreateStart(solidGeometricFieldUserNumber,solidRegion)
     # Set the decomposition to use
-    solidGeometricField.MeshDecompositionSet(solidDecomposition)
-    solidGeometricField.meshDecomposition = solidDecomposition
+    solidGeometricField.DecompositionSet(solidDecomposition)
     # Set the scaling to use
     if (uInterpolation == CUBIC_HERMITE):
-        solidGeometricField.ScalingTypeSet(iron.FieldScalingTypes.ARITHMETIC_MEAN)
+        solidGeometricField.ScalingTypeSet(oc.FieldScalingTypes.ARITHMETIC_MEAN)
     else:
-        solidGeometricField.ScalingTypeSet(iron.FieldScalingTypes.NONE)
-    solidGeometricField.VariableLabelSet(iron.FieldVariableTypes.U,'SolidGeometry')
+        solidGeometricField.ScalingTypeSet(oc.FieldScalingTypes.NONE)
+    solidGeometricField.VariableLabelSet(oc.FieldVariableTypes.U,'SolidGeometry')
     # Set the domain to be used by the field components.
-    solidGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,1,1)
-    solidGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,2,1)
+    solidGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,1,1)
+    solidGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,2,1)
     # Finish creating the first field
     solidGeometricField.CreateFinish()
 
 if (problemType != SOLID):
     # Start to create a default (geometric) field on the fluid region
-    fluidGeometricField = iron.Field()
+    fluidGeometricField = oc.Field()
     fluidGeometricField.CreateStart(fluidGeometricFieldUserNumber,fluidRegion)
     # Set the decomposition to use
-    fluidGeometricField.MeshDecompositionSet(fluidDecomposition)
+    fluidGeometricField.DecompositionSet(fluidDecomposition)
     # Set the scaling to use
     if (uInterpolation == CUBIC_HERMITE):
-        fluidGeometricField.ScalingTypeSet(iron.FieldScalingTypes.ARITHMETIC_MEAN)
+        fluidGeometricField.ScalingTypeSet(oc.FieldScalingTypes.ARITHMETIC_MEAN)
     else:
-        fluidGeometricField.ScalingTypeSet(iron.FieldScalingTypes.NONE)
-    fluidGeometricField.VariableLabelSet(iron.FieldVariableTypes.U,'FluidGeometry')
+        fluidGeometricField.ScalingTypeSet(oc.FieldScalingTypes.NONE)
+    fluidGeometricField.VariableLabelSet(oc.FieldVariableTypes.U,'FluidGeometry')
     # Set the domain to be used by the field components.
-    fluidGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,1,1)
-    fluidGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,2,1)
+    fluidGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,1,1)
+    fluidGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,2,1)
     # Finish creating the second field
     fluidGeometricField.CreateFinish()
 
 if (problemType == FSI):
     # Start to create a default (geometric) field on the Interface
-    interfaceGeometricField = iron.Field()
+    interfaceGeometricField = oc.Field()
     interfaceGeometricField.CreateStartInterface(interfaceGeometricFieldUserNumber,interface)
     # Set the decomposition to use
-    interfaceGeometricField.MeshDecompositionSet(interfaceDecomposition)
+    interfaceGeometricField.DecompositionSet(interfaceDecomposition)
     # Set the scaling to use
     if (uInterpolation == CUBIC_HERMITE):
-        interfaceGeometricField.ScalingTypeSet(iron.FieldScalingTypes.ARITHMETIC_MEAN)
+        interfaceGeometricField.ScalingTypeSet(oc.FieldScalingTypes.ARITHMETIC_MEAN)
     else:
-        interfaceGeometricField.ScalingTypeSet(iron.FieldScalingTypes.NONE)
-    interfaceGeometricField.VariableLabelSet(iron.FieldVariableTypes.U,'InterfaceGeometry')
+        interfaceGeometricField.ScalingTypeSet(oc.FieldScalingTypes.NONE)
+    interfaceGeometricField.VariableLabelSet(oc.FieldVariableTypes.U,'InterfaceGeometry')
     # Set the domain to be used by the field components.
-    interfaceGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,1,1)
-    interfaceGeometricField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,2,1)
+    interfaceGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,1,1)
+    interfaceGeometricField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,2,1)
     # Finish creating the first field
     interfaceGeometricField.CreateFinish()
 
 if (progressDiagnostics):
     print('Geometric Field ... Done')
-    
+              
 if (progressDiagnostics):
     print('Geometric Parameters ...')
-    
+              
 if (problemType != FLUID):
     # Solid nodes
     if (debugLevel > 2):
@@ -1145,14 +1225,14 @@ if (problemType != FLUID):
     for yNodeIdx in range(1,numberOfSolidYNodes+1):
         for xNodeIdx in range(1,numberOfSolidXNodes+1):
             nodeNumber = xNodeIdx+(yNodeIdx-1)*numberOfSolidXNodes
-            nodeDomain = solidDecomposition.NodeDomainGet(nodeNumber,1)
+            nodeDomain = solidDecomposition.NodeDomainGet(1,nodeNumber)
             if (nodeDomain == computationalNodeNumber):
                 xPosition = fluidX1Size + float(xNodeIdx-1)/float(numberOfSolidXNodes-1)*solidXSize
                 yPosition = float(yNodeIdx-1)/float(numberOfSolidYNodes-1)*solidYSize
                 SetNodeParameters2D(nodeNumber,solidGeometricField,xPosition,yPosition)
     # Update fields            
-    solidGeometricField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    solidGeometricField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+    solidGeometricField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    solidGeometricField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (problemType != SOLID):                        
     if (debugLevel > 2):
@@ -1161,7 +1241,7 @@ if (problemType != SOLID):
         # Nodes to the left of the solid
         for xNodeIdx in range(1,numberOfFluidX1Nodes+1):
             nodeNumber = xNodeIdx+(yNodeIdx-1)*numberOfFluidXNodes2
-            nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+            nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
             if (nodeDomain == computationalNodeNumber):
                 xPosition = float(xNodeIdx-1)/float(numberOfFluidX1Elements*(numberOfNodesXi-1))*fluidX1Size
                 yPosition = float(yNodeIdx-1)/float(numberOfSolidYElements*(numberOfNodesXi-1))*solidYSize
@@ -1169,7 +1249,7 @@ if (problemType != SOLID):
         # Nodes to the right of the solid
         for xNodeIdx in range(1,numberOfFluidX2Nodes+1):
             nodeNumber = xNodeIdx+numberOfFluidX1Nodes+(yNodeIdx-1)*numberOfFluidXNodes2
-            nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+            nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
             if (nodeDomain == computationalNodeNumber):
                 xPosition = fluidX1Size+solidXSize+float(xNodeIdx-1)/float(numberOfFluidX1Nodes-1)*fluidX1Size
                 yPosition = float(yNodeIdx-1)/float(numberOfSolidYNodes-1)*solidYSize
@@ -1178,15 +1258,15 @@ if (problemType != SOLID):
     for yNodeIdx in range(1,numberOfFluidYNodes+1):
         for xNodeIdx in range(1,numberOfFluidXNodes1+1):
             nodeNumber = numberOfFluidXNodes2*(numberOfSolidYNodes-1)+xNodeIdx+\
-                         (yNodeIdx-1)*numberOfFluidXNodes1
-            nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+                (yNodeIdx-1)*numberOfFluidXNodes1
+            nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
             if (nodeDomain == computationalNodeNumber):
                 xPosition = float(xNodeIdx-1)/float(numberOfFluidXNodes1-1)*(fluidX1Size+solidXSize+fluidX2Size)
                 yPosition = solidYSize + float(yNodeIdx-1)/float(numberOfFluidYNodes-1)*fluidYSize
                 SetNodeParameters2D(nodeNumber,fluidGeometricField,xPosition,yPosition)
     # Update fields            
-    fluidGeometricField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    fluidGeometricField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+    fluidGeometricField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    fluidGeometricField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (problemType == FSI):
     if (debugLevel > 2):
@@ -1194,8 +1274,7 @@ if (problemType == FSI):
     # Left edge of interface nodes    
     for yNodeIdx in range(1,numberOfSolidYNodes):
         nodeNumber = yNodeIdx
-        #nodeDomain = interfaceDecomposition.NodeDomainGet(nodeNumber,1)
-        nodeDomain = computationalNodeNumber
+        nodeDomain = interfaceDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
             xPosition = fluidX1Size
             yPosition = float(yNodeIdx-1)/float(numberOfSolidYNodes-1)*solidYSize
@@ -1203,8 +1282,7 @@ if (problemType == FSI):
     # Top edge of interface nodes    
     for xNodeIdx in range(1,numberOfSolidXNodes+1):
         nodeNumber = xNodeIdx+numberOfSolidYNodes-1
-        #nodeDomain = interfaceDecomposition.NodeDomainGet(nodeNumber,1)
-        nodeDomain = computationalNodeNumber
+        nodeDomain = interfaceDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
             xPosition = fluidX1Size+float(xNodeIdx-1)/float(numberOfSolidXNodes-1)*solidXSize
             yPosition = solidYSize
@@ -1212,16 +1290,15 @@ if (problemType == FSI):
     # Right edge of interface nodes    
     for yNodeIdx in range(1,numberOfSolidYNodes):
         nodeNumber = yNodeIdx+(numberOfSolidYElements+numberOfSolidXElements)*(numberOfNodesXi-1)+1
-        #nodeDomain = interfaceDecomposition.NodeDomainGet(nodeNumber,1)
-        nodeDomain = computationalNodeNumber
+        nodeDomain = interfaceDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
             xPosition = fluidX1Size+solidXSize
             yPosition = solidYSize-float(yNodeIdx)/float(numberOfSolidYNodes-1)*solidYSize
             SetNodeParameters1D(nodeNumber,interfaceGeometricField,xPosition,yPosition,0.0,-1.0)
 
     # Update fields            
-    interfaceGeometricField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    interfaceGeometricField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+    interfaceGeometricField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    interfaceGeometricField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (progressDiagnostics):
     print('Geometric Parameters ... Done')
@@ -1235,40 +1312,64 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):
     # Create the equations set for the solid region 
-    solidEquationsSetField = iron.Field()
-    solidEquationsSet = iron.EquationsSet()
-    solidEquationsSetSpecification = [iron.EquationsSetClasses.ELASTICITY,
-                                      iron.EquationsSetTypes.FINITE_ELASTICITY,
-                                      iron.EquationsSetSubtypes.MOONEY_RIVLIN]
+    solidEquationsSetField = oc.Field()
+    solidEquationsSet = oc.EquationsSet()
+    if (solidCompressibility == COMPRESSIBLE):
+        if (solidMaterial == ST_VENANT_KIRCHOFF):
+            solidEquationsSetSpecification = [oc.EquationsSetClasses.ELASTICITY,
+                                              oc.EquationsSetTypes.FINITE_ELASTICITY,
+                                              oc.EquationsSetSubtypes.DYNAMIC_COMP_ST_VENANT_KIRCHOFF]
+        elif (solidMaterial == MOONEY_RIVLIN):
+            solidEquationsSetSpecification = [oc.EquationsSetClasses.ELASTICITY,
+                                              oc.EquationsSetTypes.FINITE_ELASTICITY,
+                                              oc.EquationsSetSubtypes.DYNAMIC_COMP_MOONEY_RIVLIN]
+        else:
+            print('Invalid solid material')
+            exit()
+    elif (solidCompressibility == INCOMPRESSIBLE):
+        if (solidMaterial == ST_VENANT_KIRCHOFF):
+            solidEquationsSetSpecification = [oc.EquationsSetClasses.ELASTICITY,
+                                              oc.EquationsSetTypes.FINITE_ELASTICITY,
+                                              oc.EquationsSetSubtypes.DYNAMIC_ST_VENANT_KIRCHOFF]
+        elif (solidMaterial == MOONEY_RIVLIN):
+            solidEquationsSetSpecification = [oc.EquationsSetClasses.ELASTICITY,
+                                              oc.EquationsSetTypes.FINITE_ELASTICITY,
+                                              oc.EquationsSetSubtypes.DYNAMIC_MOONEY_RIVLIN]
+        else:
+            print('Invalid solid material')
+            exit()
+    else:
+        print('Invalid solid compressibility')
+        exit()            
     solidEquationsSet.CreateStart(solidEquationsSetUserNumber,solidRegion,solidGeometricField,
                                   solidEquationsSetSpecification,solidEquationsSetFieldUserNumber,
                                   solidEquationsSetField)
     solidEquationsSet.OutputTypeSet(solidEquationsSetOutputType)
     solidEquationsSet.CreateFinish()
-    
+              
 if (problemType != SOLID):
     # Create the equations set for the fluid region - ALE Navier-Stokes
-    fluidEquationsSetField = iron.Field()
-    fluidEquationsSet = iron.EquationsSet()
+    fluidEquationsSetField = oc.Field()
+    fluidEquationsSet = oc.EquationsSet()
     if RBS:
         if (problemType == FSI):
-            fluidEquationsSetSpecification = [iron.EquationsSetClasses.FLUID_MECHANICS,
-                                              iron.EquationsSetTypes.NAVIER_STOKES_EQUATION,
-                                              iron.EquationsSetSubtypes.ALE_RBS_NAVIER_STOKES]
+            fluidEquationsSetSpecification = [oc.EquationsSetClasses.FLUID_MECHANICS,
+                                              oc.EquationsSetTypes.NAVIER_STOKES_EQUATION,
+                                              oc.EquationsSetSubtypes.ALE_RBS_NAVIER_STOKES]
         else:
-            fluidEquationsSetSpecification = [iron.EquationsSetClasses.FLUID_MECHANICS,
-                                              iron.EquationsSetTypes.NAVIER_STOKES_EQUATION,
-                                              iron.EquationsSetSubtypes.TRANSIENT_RBS_NAVIER_STOKES]            
+            fluidEquationsSetSpecification = [oc.EquationsSetClasses.FLUID_MECHANICS,
+                                              oc.EquationsSetTypes.NAVIER_STOKES_EQUATION,
+                                              oc.EquationsSetSubtypes.TRANSIENT_RBS_NAVIER_STOKES]            
     else:
         if (problemType == FSI):
-            fluidEquationsSetSpecification = [iron.EquationsSetClasses.FLUID_MECHANICS,
-                                              iron.EquationsSetTypes.NAVIER_STOKES_EQUATION,
-                                              iron.EquationsSetSubtypes.ALE_NAVIER_STOKES]
+            fluidEquationsSetSpecification = [oc.EquationsSetClasses.FLUID_MECHANICS,
+                                              oc.EquationsSetTypes.NAVIER_STOKES_EQUATION,
+                                              oc.EquationsSetSubtypes.ALE_NAVIER_STOKES]
         else:
-            fluidEquationsSetSpecification = [iron.EquationsSetClasses.FLUID_MECHANICS,
-                                              iron.EquationsSetTypes.NAVIER_STOKES_EQUATION,
-                                              iron.EquationsSetSubtypes.TRANSIENT_NAVIER_STOKES]
-        
+            fluidEquationsSetSpecification = [oc.EquationsSetClasses.FLUID_MECHANICS,
+                                              oc.EquationsSetTypes.NAVIER_STOKES_EQUATION,
+                                              oc.EquationsSetSubtypes.TRANSIENT_NAVIER_STOKES]
+            
     fluidEquationsSet.CreateStart(fluidEquationsSetUserNumber,fluidRegion,fluidGeometricField,
                                   fluidEquationsSetSpecification,fluidEquationsSetFieldUserNumber,
                                   fluidEquationsSetField)
@@ -1277,25 +1378,25 @@ if (problemType != SOLID):
 
     if RBS:
         # Set boundary retrograde flow stabilisation scaling factor (default 0- do not use)
-        fluidEquationsSetField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U1,
-                                                           iron.FieldParameterSetTypes.VALUES,1,1.0)
+        fluidEquationsSetField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U1,
+                                                           oc.FieldParameterSetTypes.VALUES,1,1.0)
         # Set max CFL number (default 1.0)
-        fluidEquationsSetField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U1,
-                                                           iron.FieldParameterSetTypes.VALUES,2,1.0E20)
+        fluidEquationsSetField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U1,
+                                                           oc.FieldParameterSetTypes.VALUES,2,1.0E20)
         # Set time increment (default 0.0)
-        fluidEquationsSetField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U1,
-                                                           iron.FieldParameterSetTypes.VALUES,3,timeStep)
+        fluidEquationsSetField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U1,
+                                                           oc.FieldParameterSetTypes.VALUES,3,timeStep)
         # Set stabilisation type (default 1.0 = RBS)
-        fluidEquationsSetField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U1,
-                                                           iron.FieldParameterSetTypes.VALUES,4,1.0)
+        fluidEquationsSetField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U1,
+                                                           oc.FieldParameterSetTypes.VALUES,4,1.0)
         
 if (problemType == FSI):
     # Create the equations set for the moving mesh
-    movingMeshEquationsSetField = iron.Field()
-    movingMeshEquationsSet = iron.EquationsSet()
-    movingMeshEquationsSetSpecification = [iron.EquationsSetClasses.CLASSICAL_FIELD,
-                                           iron.EquationsSetTypes.LAPLACE_EQUATION,
-                                           iron.EquationsSetSubtypes.MOVING_MESH_LAPLACE]
+    movingMeshEquationsSetField = oc.Field()
+    movingMeshEquationsSet = oc.EquationsSet()
+    movingMeshEquationsSetSpecification = [oc.EquationsSetClasses.CLASSICAL_FIELD,
+                                           oc.EquationsSetTypes.LAPLACE_EQUATION,
+                                           oc.EquationsSetSubtypes.MOVING_MESH_LAPLACE]
     movingMeshEquationsSet.CreateStart(movingMeshEquationsSetUserNumber,fluidRegion,fluidGeometricField,
                                        movingMeshEquationsSetSpecification,movingMeshEquationsSetFieldUserNumber,
                                        movingMeshEquationsSetField)
@@ -1311,89 +1412,91 @@ if (progressDiagnostics):
 #================================================================================================================================
 
 if (progressDiagnostics):
-    print('Dependent Fields ...')
+              print('Dependent Fields ...')
 
 if (problemType != FLUID):
     # Create the equations set dependent field variables for the solid equations set
-    solidDependentField = iron.Field()
+    solidDependentField = oc.Field()
     solidEquationsSet.DependentCreateStart(solidDependentFieldUserNumber,solidDependentField)
-    solidDependentField.VariableLabelSet(iron.FieldVariableTypes.U,'SolidDependent')
-    solidDependentField.VariableLabelSet(iron.FieldVariableTypes.DELUDELN,'SolidTraction')
+    solidDependentField.VariableLabelSet(oc.FieldVariableTypes.U,'SolidDependent')
+    solidDependentField.VariableLabelSet(oc.FieldVariableTypes.T,'SolidTraction')
     for componentIdx in range(1,numberOfDimensions+1):
-        solidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,componentIdx,1)
-        solidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.DELUDELN,componentIdx,1)
-    solidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,numberOfDimensions+1,2)
-    solidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.DELUDELN,numberOfDimensions+1,2)
-    solidDependentField.ComponentInterpolationSet(iron.FieldVariableTypes.U,numberOfDimensions+1,iron.FieldInterpolationTypes.NODE_BASED)
-    solidDependentField.ComponentInterpolationSet(iron.FieldVariableTypes.DELUDELN,numberOfDimensions+1,iron.FieldInterpolationTypes.NODE_BASED)
+        solidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,componentIdx,1)
+        solidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.T,componentIdx,1)
+    if (solidCompressibility == INCOMPRESSIBLE):
+        solidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,numberOfDimensions+1,2)
+        solidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.T,numberOfDimensions+1,2)
+        solidDependentField.ComponentInterpolationSet(oc.FieldVariableTypes.U,numberOfDimensions+1,oc.FieldInterpolationTypes.NODE_BASED)
+        solidDependentField.ComponentInterpolationSet(oc.FieldVariableTypes.T,numberOfDimensions+1,oc.FieldInterpolationTypes.NODE_BASED)
     if (uInterpolation == CUBIC_HERMITE):
-        solidDependentField.ScalingTypeSet(iron.FieldScalingTypes.ARITHMETIC_MEAN)
+        solidDependentField.ScalingTypeSet(oc.FieldScalingTypes.ARITHMETIC_MEAN)
     else:
-        solidDependentField.ScalingTypeSet(iron.FieldScalingTypes.NONE)
+        solidDependentField.ScalingTypeSet(oc.FieldScalingTypes.NONE)
     solidEquationsSet.DependentCreateFinish()
 
     # Initialise the solid dependent field from undeformed geometry and displacement bcs and set hydrostatic pressure
     for componentIdx in range(1,numberOfDimensions+1):
-        solidGeometricField.ParametersToFieldParametersComponentCopy(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,\
-                                                                     componentIdx,solidDependentField,iron.FieldVariableTypes.U,
-                                                                     iron.FieldParameterSetTypes.VALUES,componentIdx)
-    solidDependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                                    numberOfDimensions+1,solidPInit)
-    
-    solidDependentField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    solidDependentField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+        solidGeometricField.ParametersToFieldParametersComponentCopy(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,\
+                                                                     componentIdx,solidDependentField,oc.FieldVariableTypes.U,
+                                                                     oc.FieldParameterSetTypes.VALUES,componentIdx)
+    if (solidCompressibility == INCOMPRESSIBLE):
+        solidDependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                                        numberOfDimensions+1,solidPInit)
+        
+    solidDependentField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    solidDependentField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (problemType != SOLID):
     # Create the equations set dependent field variables for dynamic Navier-Stokes
-    fluidDependentField = iron.Field()
+    fluidDependentField = oc.Field()
     fluidEquationsSet.DependentCreateStart(fluidDependentFieldUserNumber,fluidDependentField)
-    fluidDependentField.VariableLabelSet(iron.FieldVariableTypes.U,'FluidDependent')
+    fluidDependentField.VariableLabelSet(oc.FieldVariableTypes.U,'FluidDependent')
     # Set the mesh component to be used by the field components.
     for componentIdx in range(1,numberOfDimensions+1):
-        fluidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,componentIdx,1)
-        fluidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.DELUDELN,componentIdx,1)
-    fluidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,numberOfDimensions+1,2)
-    fluidDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.DELUDELN,numberOfDimensions+1,2)
-    # fluidDependentField.ComponentInterpolationSet(iron.FieldVariableTypes.U,numberOfDimensions+1,iron.FieldInterpolationTypes.NODE_BASED)
-    # fluidDependentField.ComponentInterpolationSet(iron.FieldVariableTypes.DELUDELN,numberOfDimensions+1,iron.FieldInterpolationTypes.NODE_BASED)
+        fluidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,componentIdx,1)
+        fluidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.DELUDELN,componentIdx,1)
+    fluidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,numberOfDimensions+1,2)
+    fluidDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.DELUDELN,numberOfDimensions+1,2)
+    # fluidDependentField.ComponentInterpolationSet(oc.FieldVariableTypes.U,numberOfDimensions+1,oc.FieldInterpolationTypes.NODE_BASED)
+    # fluidDependentField.ComponentInterpolationSet(oc.FieldVariableTypes.DELUDELN,numberOfDimensions+1,oc.FieldInterpolationTypes.NODE_BASED)
     # Finish the equations set dependent field variables
     fluidEquationsSet.DependentCreateFinish()
 
     # Initialise the fluid dependent field
     for componentIdx in range(1,numberOfDimensions+1):
-        fluidDependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,componentIdx,0.0)
+        fluidDependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,componentIdx,0.0)
     # Initialise pressure component
-    fluidDependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
+    fluidDependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
                                                     numberOfDimensions+1,fluidPInit)
     if RBS:
-        fluidDependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.PRESSURE_VALUES,3,fluidPInit)
-        
-    fluidDependentField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    fluidDependentField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+        fluidDependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.PRESSURE_VALUES,3,fluidPInit)
+              
+    fluidDependentField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    fluidDependentField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (problemType == FSI):        
     # Create the equations set dependent field variables for moving mesh
-    movingMeshDependentField = iron.Field()
+    movingMeshDependentField = oc.Field()
     movingMeshEquationsSet.DependentCreateStart(movingMeshDependentFieldUserNumber,movingMeshDependentField)
-    movingMeshDependentField.VariableLabelSet(iron.FieldVariableTypes.U,'MovingMeshDependent')
+    movingMeshDependentField.VariableLabelSet(oc.FieldVariableTypes.U,'MovingMeshDependent')
     # Set the mesh component to be used by the field components.
     for componentIdx in range(1,numberOfDimensions+1):
-        movingMeshDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,componentIdx,1)
-        movingMeshDependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.DELUDELN,componentIdx,1)
+        movingMeshDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,componentIdx,1)
+        movingMeshDependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.DELUDELN,componentIdx,1)
     # Finish the equations set dependent field variables
     movingMeshEquationsSet.DependentCreateFinish()
 
     # Initialise dependent field moving mesh
     for ComponentIdx in range(1,numberOfDimensions+1):
-        movingMeshDependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES, \
+        movingMeshDependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES, \
                                                              componentIdx,0.0)
 
-    movingMeshDependentField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-    movingMeshDependentField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+    movingMeshDependentField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    movingMeshDependentField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
 if (progressDiagnostics):
     print('Dependent Fields ... Done')
-     
+              
 #================================================================================================================================
 #  Materials Field
 #================================================================================================================================
@@ -1403,33 +1506,39 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):
     # Create the solid materials field
-    solidMaterialsField = iron.Field()
+    solidMaterialsField = oc.Field()
     solidEquationsSet.MaterialsCreateStart(solidMaterialsFieldUserNumber,solidMaterialsField)
-    solidMaterialsField.VariableLabelSet(iron.FieldVariableTypes.U,'SolidMaterials')
-    solidMaterialsField.VariableLabelSet(iron.FieldVariableTypes.V,'SolidDensity')
+    solidMaterialsField.VariableLabelSet(oc.FieldVariableTypes.U,'SolidMaterials')
     solidEquationsSet.MaterialsCreateFinish()
-    # Set Mooney-Rivlin constants c10 and c01 respectively
-    solidMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,1,mooneyRivlin1)
-    solidMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,2,mooneyRivlin2)
-    solidMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.V,iron.FieldParameterSetTypes.VALUES,1,solidDensity)
+    if (solidMaterial == ST_VENANT_KIRCHOFF):
+        # Set St-Venant-Kirchoff lambda and mu respectively
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,solidDensity)
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,2,lameLambda)
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,3,lameMu)
+    elif (solidMaterial == MOONEY_RIVLIN):          
+        # Set Mooney-Rivlin constants c10 and c01 respectively
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,solidDensity)
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,2,mooneyRivlin1)
+        solidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,3,mooneyRivlin2)
 
 if (problemType != SOLID):
     # Create the equations set materials field variables for dynamic Navier-Stokes
-    fluidMaterialsField = iron.Field()
+    fluidMaterialsField = oc.Field()
     fluidEquationsSet.MaterialsCreateStart(fluidMaterialsFieldUserNumber,fluidMaterialsField)
     # Finish the equations set materials field variables
     fluidEquationsSet.MaterialsCreateFinish()
-    fluidMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,1,fluidDynamicViscosity)
-    fluidMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,2,fluidDensity)
+    fluidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,fluidDynamicViscosity)
+    fluidMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,2,fluidDensity)
     
 if (problemType == FSI):    
     # Create the equations set materials field variables for moving mesh
-    movingMeshMaterialsField = iron.Field()
+    movingMeshMaterialsField = oc.Field()
     movingMeshEquationsSet.MaterialsCreateStart(movingMeshMaterialsFieldUserNumber,movingMeshMaterialsField)
+    movingMeshMaterialsField.LabelSet("Moving mesh materials field")
     # Finish the equations set materials field variables
     movingMeshEquationsSet.MaterialsCreateFinish()
 
-    movingMeshMaterialsField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,1,\
+    movingMeshMaterialsField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,\
                                                          movingMeshKParameter)
    
 if (progressDiagnostics):
@@ -1444,27 +1553,27 @@ if (problemType == FSI):
         print('Independent Fields ...')
 
     # Create fluid mesh velocity independent field 
-    fluidIndependentField = iron.Field()
+    fluidIndependentField = oc.Field()
     fluidEquationsSet.IndependentCreateStart(fluidIndependentFieldUserNumber,fluidIndependentField)
-    fluidIndependentField.VariableLabelSet(iron.FieldVariableTypes.U,'FluidIndependent')
+    fluidIndependentField.VariableLabelSet(oc.FieldVariableTypes.U,'FluidIndependent')
     # Set the mesh component to be used by the field components.
     for componentIdx in range(1,numberOfDimensions+1):
-        fluidIndependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,componentIdx,1)
+        fluidIndependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,componentIdx,1)
     # Finish the equations set independent field variables
     fluidEquationsSet.IndependentCreateFinish()
   
     # Create the moving mesh independent field 
-    movingMeshIndependentField = iron.Field()
+    movingMeshIndependentField = oc.Field()
     movingMeshEquationsSet.IndependentCreateStart(movingMeshIndependentFieldUserNumber,movingMeshIndependentField)
-    movingMeshIndependentField.VariableLabelSet(iron.FieldVariableTypes.U,'MovingMeshIndependent')
+    movingMeshIndependentField.VariableLabelSet(oc.FieldVariableTypes.U,'MovingMeshIndependent')
     # Set the mesh component to be used by the field components.
     for componentIdx in range(1,numberOfDimensions+1):
-        movingMeshIndependentField.ComponentMeshComponentSet(iron.FieldVariableTypes.U,componentIdx,1)    
+        movingMeshIndependentField.ComponentMeshComponentSet(oc.FieldVariableTypes.U,componentIdx,1)    
     # Finish the equations set independent field variables
     movingMeshEquationsSet.IndependentCreateFinish()
 
     # Initialise independent field moving mesh
-    movingMeshIndependentField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,1,movingMeshKParameter)
+    movingMeshIndependentField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,movingMeshKParameter)
 
     if (progressDiagnostics):
         print('Independent Fields ... Done')
@@ -1478,25 +1587,41 @@ if (progressDiagnostics):
 
 if (problemType != FLUID):
     # Solid equations
-    solidEquations = iron.Equations()
+    solidEquations = oc.Equations()
     solidEquationsSet.EquationsCreateStart(solidEquations)
-    solidEquations.sparsityType = iron.EquationsSparsityTypes.SPARSE
+    #solidEquations.sparsityType = oc.EquationsSparsityTypes.FULL
+    solidEquations.sparsityType = oc.EquationsSparsityTypes.SPARSE
     solidEquations.outputType = solidEquationsOutputType
     solidEquationsSet.EquationsCreateFinish()
-
+    if (jacobianType == ANALYTIC):
+        solidEquations.JacobianCalculationTypeSet(1,oc.FieldVariableTypes.U,oc.EquationsJacobianCalculated.ANALYTIC)
+    elif (jacobianType == FINITE_DIFFERENCE):
+        solidEquations.JacobianCalculationTypeSet(1,oc.FieldVariableTypes.U,oc.EquationsJacobianCalculated.FINITE_DIFFERENCE)
+    else:
+        print("Invalid Jacobian type")
+        exit()        
+    
 if (problemType != SOLID):
     # Fluid equations 
-    fluidEquations = iron.Equations()
+    fluidEquations = oc.Equations()
     fluidEquationsSet.EquationsCreateStart(fluidEquations)
-    fluidEquations.sparsityType = iron.EquationsSparsityTypes.SPARSE
+    #fluidEquations.sparsityType = oc.EquationsSparsityTypes.FULL
+    fluidEquations.sparsityType = oc.EquationsSparsityTypes.SPARSE
     fluidEquations.outputType = fluidEquationsOutputType
     fluidEquationsSet.EquationsCreateFinish()
+    if (jacobianType == ANALYTIC):
+        fluidEquations.JacobianCalculationTypeSet(1,oc.FieldVariableTypes.U,oc.EquationsJacobianCalculated.ANALYTIC)
+    elif (jacobianType == FINITE_DIFFERENCE):
+        fluidEquations.JacobianCalculationTypeSet(1,oc.FieldVariableTypes.U,oc.EquationsJacobianCalculated.FINITE_DIFFERENCE)
+    else:
+        print("Invalid Jacobian type")
+        exit()        
 
 if (problemType == FSI):
     # Moving mesh equations
-    movingMeshEquations = iron.Equations()
+    movingMeshEquations = oc.Equations()
     movingMeshEquationsSet.EquationsCreateStart(movingMeshEquations)
-    movingMeshEquations.sparsityType = iron.EquationsSparsityTypes.SPARSE
+    movingMeshEquations.sparsityType = oc.EquationsSparsityTypes.SPARSE
     movingMeshEquations.outputType = movingMeshEquationsOutputType
     movingMeshEquationsSet.EquationsCreateFinish()
 
@@ -1512,7 +1637,7 @@ if (progressDiagnostics):
 
 if (problemType != SOLID):
     # Create CellML equations for the temporal fluid boundary conditions
-    bcCellML = iron.CellML()
+    bcCellML = oc.CellML()
     bcCellML.CreateStart(bcCellMLUserNumber,fluidRegion)
     bcCellMLIdx = bcCellML.ModelImport(os.path.join(path,"input/exponentialrampupinletbc.cellml"))
     bcCellML.VariableSetAsKnown(bcCellMLIdx,"main/A")
@@ -1527,76 +1652,76 @@ if (problemType != SOLID):
     # Create CellML <--> OpenCMISS field maps
     bcCellML.FieldMapsCreateStart()
     # Map geometric field to x0 and y0
-    bcCellML.CreateFieldToCellMLMap(fluidGeometricField,iron.FieldVariableTypes.U,1,iron.FieldParameterSetTypes.VALUES,
-	                            bcCellMLIdx,"main/x",iron.FieldParameterSetTypes.VALUES)
-    bcCellML.CreateFieldToCellMLMap(fluidGeometricField,iron.FieldVariableTypes.U,2,iron.FieldParameterSetTypes.VALUES,
-	                            bcCellMLIdx,"main/y",iron.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateFieldToCellMLMap(fluidGeometricField,oc.FieldVariableTypes.U,1,oc.FieldParameterSetTypes.VALUES,
+	                            bcCellMLIdx,"main/x",oc.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateFieldToCellMLMap(fluidGeometricField,oc.FieldVariableTypes.U,2,oc.FieldParameterSetTypes.VALUES,
+	                            bcCellMLIdx,"main/y",oc.FieldParameterSetTypes.VALUES)
     # Map fluid velocity to ensure dependent field isn't cleared when the velocities are copied back
-    bcCellML.CreateFieldToCellMLMap(fluidDependentField,iron.FieldVariableTypes.U,1,iron.FieldParameterSetTypes.VALUES,
-	                            bcCellMLIdx,"main/inletx",iron.FieldParameterSetTypes.VALUES)
-    bcCellML.CreateFieldToCellMLMap(fluidDependentField,iron.FieldVariableTypes.U,2,iron.FieldParameterSetTypes.VALUES,
-	                            bcCellMLIdx,"main/inlety",iron.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateFieldToCellMLMap(fluidDependentField,oc.FieldVariableTypes.U,1,oc.FieldParameterSetTypes.VALUES,
+	                            bcCellMLIdx,"main/inletx",oc.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateFieldToCellMLMap(fluidDependentField,oc.FieldVariableTypes.U,2,oc.FieldParameterSetTypes.VALUES,
+	                            bcCellMLIdx,"main/inlety",oc.FieldParameterSetTypes.VALUES)
     # Map inletx and inlety to dependent field
-    bcCellML.CreateCellMLToFieldMap(bcCellMLIdx,"main/inletx",iron.FieldParameterSetTypes.VALUES,
-	                            fluidDependentField,iron.FieldVariableTypes.U,1,iron.FieldParameterSetTypes.VALUES)
-    bcCellML.CreateCellMLToFieldMap(bcCellMLIdx,"main/inlety",iron.FieldParameterSetTypes.VALUES,
-	                            fluidDependentField,iron.FieldVariableTypes.U,2,iron.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateCellMLToFieldMap(bcCellMLIdx,"main/inletx",oc.FieldParameterSetTypes.VALUES,
+	                            fluidDependentField,oc.FieldVariableTypes.U,1,oc.FieldParameterSetTypes.VALUES)
+    bcCellML.CreateCellMLToFieldMap(bcCellMLIdx,"main/inlety",oc.FieldParameterSetTypes.VALUES,
+	                            fluidDependentField,oc.FieldVariableTypes.U,2,oc.FieldParameterSetTypes.VALUES)
     bcCellML.FieldMapsCreateFinish()
 
 
     # Create the CellML models field
-    bcCellMLModelsField = iron.Field()
+    bcCellMLModelsField = oc.Field()
     bcCellML.ModelsFieldCreateStart(bcCellMLModelsFieldUserNumber,bcCellMLModelsField)
-    bcCellMLModelsField.VariableLabelSet(iron.FieldVariableTypes.U,"BCModelMap")
+    bcCellMLModelsField.VariableLabelSet(oc.FieldVariableTypes.U,"BCModelMap")
     bcCellML.ModelsFieldCreateFinish()
 
     # Only evaluate BC on inlet nodes
-    bcCellMLModelsField.ComponentValuesInitialiseIntg(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,1,0)
+    bcCellMLModelsField.ComponentValuesInitialiseIntg(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,1,0)
     if (debugLevel > 2):
         print('  CellML Boundary Conditions:')
         print('    Inlet Model Set:')
     for yNodeIdx in range(2,numberOfSolidYNodes):
         nodeNumber = (yNodeIdx-1)*numberOfFluidXNodes2+1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            bcCellMLModelsField.ParameterSetUpdateNodeIntg(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                                           1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,1)
+            bcCellMLModelsField.ParameterSetUpdateNodeIntg(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                                           1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,1)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
     for yNodeIdx in range(1,numberOfFluidYNodes):
         nodeNumber = (numberOfSolidYNodes-1)*numberOfFluidXNodes2 + (yNodeIdx-1)*numberOfFluidXNodes1+1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            bcCellMLModelsField.ParameterSetUpdateNodeIntg(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,
-                                                           1,iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,1)
+            bcCellMLModelsField.ParameterSetUpdateNodeIntg(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,
+                                                           1,oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,1)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
 
     # Create the CellML state field
-    bcCellMLStateField = iron.Field()
+    bcCellMLStateField = oc.Field()
     bcCellML.StateFieldCreateStart(bcCellMLStateFieldUserNumber,bcCellMLStateField)
-    bcCellMLStateField.VariableLabelSet(iron.FieldVariableTypes.U,"BCState")
+    bcCellMLStateField.VariableLabelSet(oc.FieldVariableTypes.U,"BCState")
     bcCellML.StateFieldCreateFinish()
 
     # Create the CellML parameters field
-    bcCellMLParametersField = iron.Field()
+    bcCellMLParametersField = oc.Field()
     bcCellML.ParametersFieldCreateStart(bcCellMLParametersFieldUserNumber,bcCellMLParametersField)
-    bcCellMLParametersField.VariableLabelSet(iron.FieldVariableTypes.U,"BCParameters")
+    bcCellMLParametersField.VariableLabelSet(oc.FieldVariableTypes.U,"BCParameters")
     bcCellML.ParametersFieldCreateFinish()
 
     # Get the component numbers
-    AComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,iron.CellMLFieldTypes.PARAMETERS,"main/A")
-    BComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,iron.CellMLFieldTypes.PARAMETERS,"main/B")
-    CComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,iron.CellMLFieldTypes.PARAMETERS,"main/C")
+    AComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,oc.CellMLFieldTypes.PARAMETERS,"main/A")
+    BComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,oc.CellMLFieldTypes.PARAMETERS,"main/B")
+    CComponentNumber = bcCellML.FieldComponentGet(bcCellMLIdx,oc.CellMLFieldTypes.PARAMETERS,"main/C")
     # Set up the parameters field
-    bcCellMLParametersField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,AComponentNumber,A)
-    bcCellMLParametersField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,BComponentNumber,B)
-    bcCellMLParametersField.ComponentValuesInitialiseDP(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,CComponentNumber,C)
+    bcCellMLParametersField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,AComponentNumber,A)
+    bcCellMLParametersField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,BComponentNumber,B)
+    bcCellMLParametersField.ComponentValuesInitialiseDP(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,CComponentNumber,C)
 
     # Create the CELL intermediate field
-    bcCellMLIntermediateField = iron.Field()
+    bcCellMLIntermediateField = oc.Field()
     bcCellML.IntermediateFieldCreateStart(bcCellMLIntermediateFieldUserNumber,bcCellMLIntermediateField)
-    bcCellMLIntermediateField.VariableLabelSet(iron.FieldVariableTypes.U,"BCIntermediate")
+    bcCellMLIntermediateField.VariableLabelSet(oc.FieldVariableTypes.U,"BCIntermediate")
     bcCellML.IntermediateFieldCreateFinish()
 
 if (progressDiagnostics):
@@ -1611,15 +1736,15 @@ if (problemType == FSI):
         print('Interface Conditions ...')
 
     # Create an interface condition between the two meshes
-    interfaceCondition = iron.InterfaceCondition()
+    interfaceCondition = oc.InterfaceCondition()
     interfaceCondition.CreateStart(interfaceConditionUserNumber,interface,interfaceGeometricField)
     # Specify the method for the interface condition
-    interfaceCondition.MethodSet(iron.InterfaceConditionMethods.LAGRANGE_MULTIPLIERS)
+    interfaceCondition.MethodSet(oc.InterfaceConditionMethods.LAGRANGE_MULTIPLIERS)
     # Specify the type of interface condition operator
-    interfaceCondition.OperatorSet(iron.InterfaceConditionOperators.SOLID_FLUID)
+    interfaceCondition.OperatorSet(oc.InterfaceConditionOperators.SOLID_FLUID)
     # Add in the dependent variables from the equations sets
-    interfaceCondition.DependentVariableAdd(solidMeshIndex,solidEquationsSet,iron.FieldVariableTypes.U)
-    interfaceCondition.DependentVariableAdd(fluidMeshIndex,fluidEquationsSet,iron.FieldVariableTypes.U)
+    interfaceCondition.DependentVariableAdd(solidMeshIndex,solidEquationsSet,oc.FieldVariableTypes.U)
+    interfaceCondition.DependentVariableAdd(fluidMeshIndex,fluidEquationsSet,oc.FieldVariableTypes.U)
     # Set the label
     interfaceCondition.LabelSet("FSI Interface Condition")
     # Set the output type
@@ -1634,17 +1759,17 @@ if (problemType == FSI):
         print('Interface Lagrange Field ...')
     
     # Create the Lagrange multipliers field
-    interfaceLagrangeField = iron.Field()
+    interfaceLagrangeField = oc.Field()
     interfaceCondition.LagrangeFieldCreateStart(interfaceLagrangeFieldUserNumber,interfaceLagrangeField)
-    interfaceLagrangeField.VariableLabelSet(iron.FieldVariableTypes.U,'InterfaceLagrange')
+    interfaceLagrangeField.VariableLabelSet(oc.FieldVariableTypes.U,'InterfaceLagrange')
     # Finish the Lagrange multipliers field
     interfaceCondition.LagrangeFieldCreateFinish()
     
     for componentIdx in range(1,numberOfDimensions+1):
-        interfaceLagrangeField.ComponentValuesInitialise(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES,componentIdx,0.0)
+        interfaceLagrangeField.ComponentValuesInitialise(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES,componentIdx,0.0)
 
-        interfaceLagrangeField.ParameterSetUpdateStart(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
-        interfaceLagrangeField.ParameterSetUpdateFinish(iron.FieldVariableTypes.U,iron.FieldParameterSetTypes.VALUES)
+    interfaceLagrangeField.ParameterSetUpdateStart(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
+    interfaceLagrangeField.ParameterSetUpdateFinish(oc.FieldVariableTypes.U,oc.FieldParameterSetTypes.VALUES)
 
     if (progressDiagnostics):
         print('Interface Lagrange Field ... Done')
@@ -1653,10 +1778,11 @@ if (problemType == FSI):
         print('Interface Equations ...')
 
     # Create the interface condition equations
-    interfaceEquations = iron.InterfaceEquations()
+    interfaceEquations = oc.InterfaceEquations()
     interfaceCondition.EquationsCreateStart(interfaceEquations)
     # Set the interface equations sparsity
-    interfaceEquations.sparsityType = iron.EquationsSparsityTypes.SPARSE
+    #interfaceEquations.sparsityType = oc.EquationsSparsityTypes.FULL
+    interfaceEquations.sparsityType = oc.EquationsSparsityTypes.SPARSE
     # Set the interface equations output
     interfaceEquations.outputType = interfaceEquationsOutputType
     # Finish creating the interface equations
@@ -1673,31 +1799,31 @@ if (progressDiagnostics):
     print('Problems ...')
 
 # Create a FSI problem
-fsiProblem = iron.Problem()
+fsiProblem = oc.Problem()
 if (problemType == SOLID):
-   fsiProblemSpecification = [iron.ProblemClasses.ELASTICITY,
-                              iron.ProblemTypes.FINITE_ELASTICITY,
-                              iron.ProblemSubtypes.QUASISTATIC_FINITE_ELASTICITY]
+   fsiProblemSpecification = [oc.ProblemClasses.ELASTICITY,
+                              oc.ProblemTypes.FINITE_ELASTICITY,
+                              oc.ProblemSubtypes.DYNAMIC_FINITE_ELASTICITY]
 elif (problemType == FLUID):
     if RBS:
-        fsiProblemSpecification = [iron.ProblemClasses.FLUID_MECHANICS,
-                                   iron.ProblemTypes.NAVIER_STOKES_EQUATION,
-                                   iron.ProblemSubtypes.TRANSIENT_RBS_NAVIER_STOKES]
+        fsiProblemSpecification = [oc.ProblemClasses.FLUID_MECHANICS,
+                                   oc.ProblemTypes.NAVIER_STOKES_EQUATION,
+                                   oc.ProblemSubtypes.TRANSIENT_RBS_NAVIER_STOKES]
     else:
-        fsiProblemSpecification = [iron.ProblemClasses.FLUID_MECHANICS,
-                                   iron.ProblemTypes.NAVIER_STOKES_EQUATION,
-                                   iron.ProblemSubtypes.TRANSIENT_NAVIER_STOKES]
+        fsiProblemSpecification = [oc.ProblemClasses.FLUID_MECHANICS,
+                                   oc.ProblemTypes.NAVIER_STOKES_EQUATION,
+                                   oc.ProblemSubtypes.TRANSIENT_NAVIER_STOKES]
 elif (problemType == FSI):
     if RBS:
-        fsiProblemSpecification = [iron.ProblemClasses.MULTI_PHYSICS,
-                                   iron.ProblemTypes.FINITE_ELASTICITY_NAVIER_STOKES,
-                                   iron.ProblemSubtypes.FINITE_ELASTICITY_RBS_NAVIER_STOKES_ALE]
+        fsiProblemSpecification = [oc.ProblemClasses.MULTI_PHYSICS,
+                                   oc.ProblemTypes.FINITE_ELASTICITY_NAVIER_STOKES,
+                                   oc.ProblemSubtypes.DYNAMIC_FINITE_ELAST_RBS_NAV_STOKES_ALE]
     else:
-        fsiProblemSpecification = [iron.ProblemClasses.MULTI_PHYSICS,
-                                   iron.ProblemTypes.FINITE_ELASTICITY_NAVIER_STOKES,
-                                   iron.ProblemSubtypes.FINITE_ELASTICITY_NAVIER_STOKES_ALE]
+        fsiProblemSpecification = [oc.ProblemClasses.MULTI_PHYSICS,
+                                   oc.ProblemTypes.FINITE_ELASTICITY_NAVIER_STOKES,
+                                   oc.ProblemSubtypes.DYNAMIC_FINITE_ELAST_NAV_STOKES_ALE]
         
-fsiProblem.CreateStart(fsiProblemUserNumber,fsiProblemSpecification)
+fsiProblem.CreateStart(fsiProblemUserNumber,context,fsiProblemSpecification)
 fsiProblem.CreateFinish()
 
 if (progressDiagnostics):
@@ -1711,9 +1837,9 @@ if (progressDiagnostics):
     print('Control Loops ...')
 
 # Create the fsi problem control loop
-fsiControlLoop = iron.ControlLoop()
+fsiControlLoop = oc.ControlLoop()
 fsiProblem.ControlLoopCreateStart()
-fsiProblem.ControlLoopGet([iron.ControlLoopIdentifiers.NODE],fsiControlLoop)
+fsiProblem.ControlLoopGet([oc.ControlLoopIdentifiers.NODE],fsiControlLoop)
 fsiControlLoop.LabelSet('TimeLoop')
 fsiControlLoop.TimesSet(startTime,stopTime,timeStep)
 fsiControlLoop.TimeOutputSet(outputFrequency)
@@ -1730,23 +1856,28 @@ if (progressDiagnostics):
     print('Solvers ...')
 
 # Create the problem solver
-bcCellMLEvaluationSolver = iron.Solver()
-fsiDynamicSolver = iron.Solver()
-fsiNonlinearSolver = iron.Solver()
-fsiLinearSolver = iron.Solver()
-movingMeshLinearSolver = iron.Solver()
+bcCellMLEvaluationSolver = oc.Solver()
+fsiDynamicSolver = oc.Solver()
+fsiNonlinearSolver = oc.Solver()
+fsiLinearSolver = oc.Solver()
+movingMeshLinearSolver = oc.Solver()
 
 fsiProblem.SolversCreateStart()
 if (problemType == SOLID):
     # Solvers for growth Finite Elasticity problem
     # Get the BC CellML solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
-    bcCellMLEvaluationSolver.outputType = iron.SolverOutputTypes.PROGRESS
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
+    bcCellMLEvaluationSolver.outputType = oc.SolverOutputTypes.PROGRESS
     # Get the nonlinear solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],2,fsiNonlinearSolver)
-    fsiNonlinearSolver.NewtonLineSearchTypeSet(iron.NewtonLineSearchTypes.LINEAR)
-    fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
-    #fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],2,fsiNonlinearSolver)
+    fsiNonlinearSolver.NewtonLineSearchTypeSet(oc.NewtonLineSearchTypes.LINEAR)
+    if (jacobianType == ANALYTIC):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
+    elif (jacobianType == FINITE_DIFFERENCE):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    else:
+        print("Invalid Jacobian type")
+        exit()        
     fsiNonlinearSolver.NewtonMaximumFunctionEvaluationsSet(nonlinearMaxFunctionEvaluations)
     fsiNonlinearSolver.OutputTypeSet(fsiNonlinearSolverOutputType)
     fsiNonlinearSolver.NewtonAbsoluteToleranceSet(nonlinearAbsoluteTolerance)
@@ -1755,29 +1886,34 @@ if (problemType == SOLID):
     fsiNonlinearSolver.NewtonLineSearchAlphaSet(nonlinearLinesearchAlpha)
     # Get the dynamic nonlinear linear solver
     fsiNonlinearSolver.NewtonLinearSolverGet(fsiLinearSolver)
-    #fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.ITERATIVE)
-    #fsiLinearSolver.LinearIterativeTypeSet(iron.IterativeLinearSolverTypes.GMRES)
+    #fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.ITERATIVE)
+    #fsiLinearSolver.LinearIterativeTypeSet(oc.IterativeLinearSolverTypes.GMRES)
     #fsiLinearSolver.LinearIterativeGMRESRestartSet(linearRestartValue)
     #fsiLinearSolver.LinearIterativeMaximumIterationsSet(linearMaximumIterations)
     #fsiLinearSolver.LinearIterativeDivergenceToleranceSet(linearDivergenceTolerance)
     #fsiLinearSolver.LinearIterativeRelativeToleranceSet(linearRelativeTolerance)
     #fsiLinearSolver.LinearIterativeAbsoluteToleranceSet(linearAbsoluteTolerance)
-    fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.DIRECT)
+    fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.DIRECT)
     fsiLinearSolver.OutputTypeSet(fsiLinearSolverOutputType)
 elif (problemType == FLUID):
     # Solvers for coupled FiniteElasticity NavierStokes problem
     # Get the BC CellML solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
-    bcCellMLEvaluationSolver.outputType = iron.SolverOutputTypes.PROGRESS
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
+    bcCellMLEvaluationSolver.outputType = oc.SolverOutputTypes.PROGRESS
     # Get the dynamic ALE solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],2,fsiDynamicSolver)
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],2,fsiDynamicSolver)
     fsiDynamicSolver.OutputTypeSet(fsiDynamicSolverOutputType)
-    fsiDynamicSolver.DynamicThetaSet(fsiDynamicSolverTheta)
+    fsiDynamicSolver.DynamicThetaSet(fsiDynamicSolverThetas)
     # Get the dynamic nonlinear solver
     fsiDynamicSolver.DynamicNonlinearSolverGet(fsiNonlinearSolver)
-    fsiNonlinearSolver.NewtonLineSearchTypeSet(iron.NewtonLineSearchTypes.LINEAR)
-    fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
-    #fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    fsiNonlinearSolver.NewtonLineSearchTypeSet(oc.NewtonLineSearchTypes.LINEAR)
+    if (jacobianType == ANALYTIC):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
+    elif (jacobianType == FINITE_DIFFERENCE):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    else:
+        print("Invalid Jacobian type")
+        exit()
     fsiNonlinearSolver.NewtonMaximumFunctionEvaluationsSet(nonlinearMaxFunctionEvaluations)
     fsiNonlinearSolver.OutputTypeSet(fsiNonlinearSolverOutputType)
     fsiNonlinearSolver.NewtonAbsoluteToleranceSet(nonlinearAbsoluteTolerance)
@@ -1786,27 +1922,32 @@ elif (problemType == FLUID):
     fsiNonlinearSolver.NewtonLineSearchAlphaSet(nonlinearLinesearchAlpha)
     # Get the dynamic nonlinear linear solver
     fsiNonlinearSolver.NewtonLinearSolverGet(fsiLinearSolver)
-    #fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.ITERATIVE)
+    #fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.ITERATIVE)
     #fsiLinearSolver.LinearIterativeMaximumIterationsSet(linearMaximumIterations)
     #fsiLinearSolver.LinearIterativeDivergenceToleranceSet(linearDivergenceTolerance)
     #fsiLinearSolver.LinearIterativeRelativeToleranceSet(linearRelativeTolerance)
     #fsiLinearSolver.LinearIterativeAbsoluteToleranceSet(linearAbsoluteTolerance)
-    fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.DIRECT)
+    fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.DIRECT)
     fsiLinearSolver.OutputTypeSet(fsiLinearSolverOutputType)
 elif (problemType == FSI):
     # Solvers for coupled FiniteElasticity NavierStokes problem
     # Get the BC CellML solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
-    bcCellMLEvaluationSolver.outputType = iron.SolverOutputTypes.PROGRESS
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],1,bcCellMLEvaluationSolver)
+    bcCellMLEvaluationSolver.outputType = oc.SolverOutputTypes.PROGRESS
     # Get the dynamic ALE solver
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],2,fsiDynamicSolver)
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],2,fsiDynamicSolver)
     fsiDynamicSolver.OutputTypeSet(fsiDynamicSolverOutputType)
-    fsiDynamicSolver.DynamicThetaSet(fsiDynamicSolverTheta)
+    fsiDynamicSolver.DynamicThetaSet(fsiDynamicSolverThetas)
     # Get the dynamic nonlinear solver
     fsiDynamicSolver.DynamicNonlinearSolverGet(fsiNonlinearSolver)
-    fsiNonlinearSolver.NewtonLineSearchTypeSet(iron.NewtonLineSearchTypes.LINEAR)
-    #fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
-    fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(iron.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    fsiNonlinearSolver.NewtonLineSearchTypeSet(oc.NewtonLineSearchTypes.LINEAR)
+    if (jacobianType == ANALYTIC):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.EQUATIONS) #(.FD/EQUATIONS)
+    elif (jacobianType == FINITE_DIFFERENCE):
+        fsiNonlinearSolver.NewtonJacobianCalculationTypeSet(oc.JacobianCalculationTypes.FD) #(.FD/EQUATIONS)
+    else:
+        print("Invalid Jacobian type")
+        exit()        
     fsiNonlinearSolver.NewtonMaximumFunctionEvaluationsSet(nonlinearMaxFunctionEvaluations)
     fsiNonlinearSolver.OutputTypeSet(fsiNonlinearSolverOutputType)
     fsiNonlinearSolver.NewtonAbsoluteToleranceSet(nonlinearAbsoluteTolerance)
@@ -1815,15 +1956,16 @@ elif (problemType == FSI):
     fsiNonlinearSolver.NewtonLineSearchAlphaSet(nonlinearLinesearchAlpha)
     # Get the dynamic nonlinear linear solver
     fsiNonlinearSolver.NewtonLinearSolverGet(fsiLinearSolver)
-    #fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.ITERATIVE)
+    #fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.ITERATIVE)
     #fsiLinearSolver.LinearIterativeMaximumIterationsSet(linearMaximumIterations)
     #fsiLinearSolver.LinearIterativeDivergenceToleranceSet(linearDivergenceTolerance)
     #fsiLinearSolver.LinearIterativeRelativeToleranceSet(linearRelativeTolerance)
     #fsiLinearSolver.LinearIterativeAbsoluteToleranceSet(linearAbsoluteTolerance)
-    fsiLinearSolver.LinearTypeSet(iron.LinearSolverTypes.DIRECT)
+    fsiLinearSolver.LinearTypeSet(oc.LinearSolverTypes.DIRECT)
+    #fsiLinearSolver.LibraryTypeSet(oc.SolverLibraries.LAPACK)
     fsiLinearSolver.OutputTypeSet(fsiLinearSolverOutputType)
     # Linear solver for moving mesh
-    fsiProblem.SolverGet([iron.ControlLoopIdentifiers.NODE],3,movingMeshLinearSolver)
+    fsiProblem.SolverGet([oc.ControlLoopIdentifiers.NODE],3,movingMeshLinearSolver)
     movingMeshLinearSolver.OutputTypeSet(movingMeshLinearSolverOutputType)
 # Finish the creation of the problem solver
 fsiProblem.SolversCreateFinish()
@@ -1840,7 +1982,7 @@ if (progressDiagnostics):
 
 if (problemType != SOLID):
     # Create CellML equations and add BC equations to the solver
-    bcEquations = iron.CellMLEquations()
+    bcEquations = oc.CellMLEquations()
     fsiProblem.CellMLEquationsCreateStart()
     bcCellMLEvaluationSolver.CellMLEquationsGet(bcEquations)
     bcEquationsIndex = bcEquations.CellMLAdd(bcCellML)
@@ -1859,12 +2001,13 @@ if (progressDiagnostics):
 # Start the creation of the fsi problem solver equations
 fsiProblem.SolverEquationsCreateStart()
 # Get the fsi dynamic solver equations
-fsiSolverEquations = iron.SolverEquations()
+fsiSolverEquations = oc.SolverEquations()
 if (problemType == SOLID):
     fsiNonlinearSolver.SolverEquationsGet(fsiSolverEquations)
 else:
     fsiDynamicSolver.SolverEquationsGet(fsiSolverEquations)
-fsiSolverEquations.sparsityType = iron.SolverEquationsSparsityTypes.SPARSE
+#fsiSolverEquations.sparsityType = oc.SolverEquationsSparsityTypes.FULL
+fsiSolverEquations.sparsityType = oc.SolverEquationsSparsityTypes.SPARSE
 if (problemType != FLUID):
     fsiSolidEquationsSetIndex = fsiSolverEquations.EquationsSetAdd(solidEquationsSet)
 if (problemType != SOLID):
@@ -1874,17 +2017,17 @@ if (problemType == FSI):
     # Set the time dependence of the interface matrix to determine the interface matrix coefficient in the solver matrix
     # (basiy position in big coupled matrix system)
     interfaceEquations.MatrixTimeDependenceTypeSet(fsiSolidEquationsSetIndex,True, \
-                                                   [iron.InterfaceMatricesTimeDependenceTypes.STATIC,\
-                                                    iron.InterfaceMatricesTimeDependenceTypes.FIRST_ORDER_DYNAMIC])
+                                                   [oc.InterfaceMatricesTimeDependenceTypes.STATIC,\
+                                                    oc.InterfaceMatricesTimeDependenceTypes.FIRST_ORDER_DYNAMIC])
     interfaceEquations.MatrixTimeDependenceTypeSet(fsiFluidEquationsSetIndex,True, \
-                                                   [iron.InterfaceMatricesTimeDependenceTypes.STATIC,\
-                                                    iron.InterfaceMatricesTimeDependenceTypes.STATIC])
+                                                   [oc.InterfaceMatricesTimeDependenceTypes.STATIC,\
+                                                    oc.InterfaceMatricesTimeDependenceTypes.STATIC])
     
     # Create the moving mesh solver equations
-    movingMeshSolverEquations = iron.SolverEquations()
+    movingMeshSolverEquations = oc.SolverEquations()
     # Get the linear moving mesh solver equations
     movingMeshLinearSolver.SolverEquationsGet(movingMeshSolverEquations)
-    movingMeshSolverEquations.sparsityType = iron.SolverEquationsSparsityTypes.SPARSE
+    movingMeshSolverEquations.sparsityType = oc.SolverEquationsSparsityTypes.SPARSE
     # Add in the equations set
     movingMeshEquationsSetIndex = movingMeshSolverEquations.EquationsSetAdd(movingMeshEquationsSet)
     
@@ -1902,7 +2045,7 @@ if (progressDiagnostics):
     print('Boundary Conditions ...')
 
 # Start the creation of the fsi boundary conditions
-fsiBoundaryConditions = iron.BoundaryConditions()
+fsiBoundaryConditions = oc.BoundaryConditions()
 fsiSolverEquations.BoundaryConditionsCreateStart(fsiBoundaryConditions)
 if (problemType != FLUID):
     # Set no displacement boundary conditions on the bottom edge of the solid
@@ -1911,44 +2054,45 @@ if (problemType != FLUID):
         print('    No Displacement Boundary conditions:')
     for xNodeIdx in range(1,numberOfSolidXElements*(numberOfNodesXi-1)+2):
         nodeNumber = xNodeIdx
-        nodeDomain = solidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = solidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-            fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Displacement      = [ %.2f, %.2f ]' % (0.0,0.0))                 
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-    if (debugLevel > 2):
-        print('    Reference Solid Pressure Boundary Condition:')
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+    if (solidCompressibility == INCOMPRESSIBLE):
+        if (debugLevel > 2):
+            print('    Reference Solid Pressure Boundary Condition:')
         nodeNumber = numberOfSolidXNodes
-        nodeDomain = solidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = solidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(solidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,3,iron.BoundaryConditionsTypes.FIXED,solidPRef)
+            fsiBoundaryConditions.SetNode(solidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,3,oc.BoundaryConditionsTypes.FIXED,solidPRef)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Pressure         =   %.2f' % (solidPRef))
@@ -1960,85 +2104,85 @@ if (problemType != SOLID):
         print('    Inlet Boundary conditions:')
     for yNodeIdx in range(2,numberOfSolidYNodes+1):
         nodeNumber = (yNodeIdx-1)*numberOfFluidXNodes2+1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Velocity         = [ %.2f, %.2f ]' % (0.0,0.0))                 
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
     for yNodeIdx in range(1,numberOfFluidYNodes):
         nodeNumber = (numberOfSolidYNodes-1)*numberOfFluidXNodes2 + \
                      (yNodeIdx-1)*numberOfFluidXNodes1+1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Velocity         = [ %.2f, %.2f ]' % (0.0,0.0))                 
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED_INLET,0.0)
     # Set outlet boundary conditions on the right hand edge to have zero pressure
     if (debugLevel > 2):
         print('    Outlet Boundary conditions:')
     # Elements to the right of the solid
     for yElementIdx in range(2,numberOfSolidYElements+1):
         nodeNumber = (yElementIdx-1)*(numberOfNodesXi-1)*(numberOfFluidXNodes2)+numberOfFluidXNodes2
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,2)
+        nodeDomain = fluidDecomposition.NodeDomainGet(2,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
             if RBS:
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                              nodeNumber,numberOfDimensions+1,iron.BoundaryConditionsTypes.PRESSURE,fluidPRef)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                              nodeNumber,numberOfDimensions+1,oc.BoundaryConditionsTypes.PRESSURE,fluidPRef)
             else:
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.DELUDELN,1, \
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                              nodeNumber,numberOfDimensions+1,iron.BoundaryConditionsTypes.FIXED,fluidPRef)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.DELUDELN,1, \
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                              nodeNumber,numberOfDimensions+1,oc.BoundaryConditionsTypes.FIXED,fluidPRef)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Pressure         =   %.2f' % (fluidPRef))                 
@@ -2049,33 +2193,33 @@ if (problemType != SOLID):
             elementDomain = fluidDecomposition.ElementDomainGet(elementNumber)
             if (elementDomain == computationalNodeNumber):
                 # Set the outflow normal to (0,0,+1)
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,5,+1.0)
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,6,0.0)
                 # Set the boundary type
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,9, \
-                                                                   iron.BoundaryConditionsTypes.PRESSURE)                                                
+                                                                   oc.BoundaryConditionsTypes.PRESSURE)                                                
                 if (debugLevel > 2):
                     print('      Element     %d:' % (elementNumber))
                     print('         Normal          = [ %.2f, %.2f ]' % (+1.0,0.0))
     # Elements above the solid
     for yElementIdx in range(1,numberOfFluidYElements+2):
         nodeNumber = (numberOfSolidYNodes-1)*numberOfFluidXNodes2 + ((yElementIdx-1)*(numberOfNodesXi-1)+1)*numberOfFluidXNodes1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,2)
+        nodeDomain = fluidDecomposition.NodeDomainGet(2,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
             if RBS:
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                              nodeNumber,numberOfDimensions+1,iron.BoundaryConditionsTypes.PRESSURE,fluidPRef)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                              nodeNumber,numberOfDimensions+1,oc.BoundaryConditionsTypes.PRESSURE,fluidPRef)
             else:
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.DELUDELN,1, \
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                              nodeNumber,numberOfDimensions+1,iron.BoundaryConditionsTypes.FIXED,fluidPRef)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.DELUDELN,1, \
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                              nodeNumber,numberOfDimensions+1,oc.BoundaryConditionsTypes.FIXED,fluidPRef)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Pressure         =   %.2f' % (fluidPRef))
@@ -2086,17 +2230,17 @@ if (problemType != SOLID):
             elementDomain = fluidDecomposition.ElementDomainGet(elementNumber)
             if (elementDomain == computationalNodeNumber):
                 # Set the outflow normal to (0,0,+1)
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,5,+1.0)
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,6,0.0)
                 # Set the boundary type
-                fluidEquationsSetField.ParameterSetUpdateElementDP(iron.FieldVariableTypes.V, \
-                                                                   iron.FieldParameterSetTypes.VALUES, \
+                fluidEquationsSetField.ParameterSetUpdateElementDP(oc.FieldVariableTypes.V, \
+                                                                   oc.FieldParameterSetTypes.VALUES, \
                                                                    elementNumber,9, \
-                                                                   iron.BoundaryConditionsTypes.PRESSURE)
+                                                                   oc.BoundaryConditionsTypes.PRESSURE)
                 if (debugLevel > 2):
                         print('      Element     %d:' % (elementNumber))
                         print('         Normal          = [ %.2f, %.2f ]' % (+1.0,0.0))
@@ -2106,196 +2250,196 @@ if (problemType != SOLID):
         print('    No-slip Boundary conditions:')
     for xNodeIdx in range(1,numberOfFluidX1Nodes+1):
         nodeNumber = xNodeIdx
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
     for xNodeIdx in range(1,numberOfFluidX2Nodes+1):
         nodeNumber = numberOfFluidX1Nodes+xNodeIdx
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
     if (problemType == FLUID):
         # Set no slip around the solid
         # Left and right solid edge nodes
         for yNodeIdx in range(2,numberOfSolidYNodes):
             nodeNumber1 = (yNodeIdx-1)*numberOfFluidXNodes2+numberOfFluidX1Nodes
             nodeNumber2 = nodeNumber1+1
-            nodeDomain1 = fluidDecomposition.NodeDomainGet(nodeNumber1,1)
-            nodeDomain2 = fluidDecomposition.NodeDomainGet(nodeNumber2,1)
+            nodeDomain1 = fluidDecomposition.NodeDomainGet(1,nodeNumber1)
+            nodeDomain2 = fluidDecomposition.NodeDomainGet(1,nodeNumber2)
             if (nodeDomain1 == computationalNodeNumber):
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
                 if (debugLevel > 2):
                     print('      Node        %d:' % (nodeNumber1))
                 if (uInterpolation == CUBIC_HERMITE):    
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
             if (nodeDomain2 == computationalNodeNumber):
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
                 if (debugLevel > 2):
                     print('      Node        %d:' % (nodeNumber2))
                 if (uInterpolation == CUBIC_HERMITE):    
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
         # Top solid edge nodes
         for xNodeIdx in range(1,numberOfSolidXNodes+1):
             nodeNumber = xNodeIdx+(numberOfSolidYNodes-1)*numberOfFluidXNodes2+numberOfFluidX1Nodes-1
-            nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+            nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
             if (nodeDomain == computationalNodeNumber):
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                              iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
-                                              iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                              oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
+                                              oc.BoundaryConditionsTypes.FIXED,0.0)
                 if (debugLevel > 2):
                     print('      Node        %d:' % (nodeNumber))
                 if (uInterpolation == CUBIC_HERMITE):    
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-                    fsiBoundaryConditions.AddNode(fluidDependentField,iron.FieldVariableTypes.U,1,
-                                                  iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
-                                                  iron.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+                    fsiBoundaryConditions.AddNode(fluidDependentField,oc.FieldVariableTypes.U,1,
+                                                  oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
+                                                  oc.BoundaryConditionsTypes.FIXED,0.0)
     # Set slip boundary conditions on the top edge
     if (debugLevel > 2):
         print('    Slip Boundary conditions:')
     for xNodeIdx in range(1,numberOfFluidXNodes1+1):
         nodeNumber = numberOfFluidXNodes2*(numberOfSolidYNodes-1)+ \
                      numberOfFluidXNodes1*(numberOfFluidYNodes-1)+xNodeIdx
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,1,iron.BoundaryConditionsTypes.FIXED,0.0)
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,1,oc.BoundaryConditionsTypes.FIXED,0.0)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
-                fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                              iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
-                                              nodeNumber,2,iron.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
+                fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                              oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2, \
+                                              nodeNumber,2,oc.BoundaryConditionsTypes.FIXED,0.0)
     if (debugLevel > 2):
         print('    Reference Fluid Pressure Boundary Condition:')
         nodeNumber = numberOfFluidXNodes2
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,2)
+        nodeDomain = fluidDecomposition.NodeDomainGet(2,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            fsiBoundaryConditions.SetNode(fluidDependentField,iron.FieldVariableTypes.U,1, \
-                                          iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
-                                          nodeNumber,3,iron.BoundaryConditionsTypes.FIXED,fluidPRef)
+            fsiBoundaryConditions.SetNode(fluidDependentField,oc.FieldVariableTypes.U,1, \
+                                          oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV, \
+                                          nodeNumber,3,oc.BoundaryConditionsTypes.FIXED,fluidPRef)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
                 print('         Pressure         =   %.2f' % (fluidPRef))
@@ -2305,64 +2449,64 @@ if (problemType == FSI):
     if (debugLevel > 2):
         print('  Lagrange Boundary Conditions:')
         print('    Fixed Boundary conditions:')
-    fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                  iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,1,1, \
-                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-    fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                  iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,1,2, \
-                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-    fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                  iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,numberOfInterfaceNodes,1, \
-                                  iron.BoundaryConditionsTypes.FIXED,0.0)
-    fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                  iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,numberOfInterfaceNodes,2, \
-                                  iron.BoundaryConditionsTypes.FIXED,0.0)
+    fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                  oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,1,1, \
+                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+    fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                  oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,1,2, \
+                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+    fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                  oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,numberOfInterfaceNodes,1, \
+                                  oc.BoundaryConditionsTypes.FIXED,0.0)
+    fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                  oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,numberOfInterfaceNodes,2, \
+                                  oc.BoundaryConditionsTypes.FIXED,0.0)
     if (debugLevel > 2):
         print('      Node        %d:' % (1))
         print('      Node        %d:' % (numberOfInterfaceNodes))
     if (uInterpolation == CUBIC_HERMITE):
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,1,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,1,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,1,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,1,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,1,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,1,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,numberOfInterfaceNodes,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,numberOfInterfaceNodes,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,numberOfInterfaceNodes,1, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,numberOfInterfaceNodes,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,numberOfInterfaceNodes,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)
-        fsiBoundaryConditions.SetNode(interfaceLagrangeField,iron.FieldVariableTypes.U,1, \
-                                      iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,numberOfInterfaceNodes,2, \
-                                      iron.BoundaryConditionsTypes.FIXED,0.0)               
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,1,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,1,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,1,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,1,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,1,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,1,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,numberOfInterfaceNodes,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,numberOfInterfaceNodes,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,numberOfInterfaceNodes,1, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,numberOfInterfaceNodes,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,numberOfInterfaceNodes,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)
+        fsiBoundaryConditions.SetNode(interfaceLagrangeField,oc.FieldVariableTypes.U,1, \
+                                      oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,numberOfInterfaceNodes,2, \
+                                      oc.BoundaryConditionsTypes.FIXED,0.0)               
 # Finish FSI boundary conditions
 fsiSolverEquations.BoundaryConditionsCreateFinish()
 
 if (problemType == FSI):
     # Start the creation of the moving mesh boundary conditions
-    movingMeshBoundaryConditions = iron.BoundaryConditions()
+    movingMeshBoundaryConditions = oc.BoundaryConditions()
     movingMeshSolverEquations.BoundaryConditionsCreateStart(movingMeshBoundaryConditions)
     if (debugLevel > 2):
         print('  Moving Mesh Boundary Conditions:')
@@ -2370,289 +2514,289 @@ if (problemType == FSI):
     # Bottom edge nodes
     for xNodeIdx in range(1,numberOfFluidXNodes2+1):
         nodeNumber = xNodeIdx
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
     # Side edges nodes
     for yNodeIdx in range(2,numberOfSolidYNodes):
         nodeNumber1 = (yNodeIdx-1)*numberOfFluidXNodes2+1
         nodeNumber2 = yNodeIdx*numberOfFluidXNodes2
-        nodeDomain1 = fluidDecomposition.NodeDomainGet(nodeNumber1,1)
-        nodeDomain2 = fluidDecomposition.NodeDomainGet(nodeNumber2,1)
+        nodeDomain1 = fluidDecomposition.NodeDomainGet(1,nodeNumber1)
+        nodeDomain2 = fluidDecomposition.NodeDomainGet(1,nodeNumber2)
         if (nodeDomain1 == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber1))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
         if (nodeDomain2 == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber2))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
     for yNodeIdx in range(1,numberOfFluidYNodes):
         nodeNumber1 = (yNodeIdx-1)*numberOfFluidXNodes1+1+\
                       numberOfFluidXNodes2*(numberOfSolidYNodes-1)
         nodeNumber2 = yNodeIdx*numberOfFluidXNodes1+\
                       numberOfFluidXNodes2*(numberOfSolidYNodes-1)
-        nodeDomain1 = fluidDecomposition.NodeDomainGet(nodeNumber1,1)
-        nodeDomain2 = fluidDecomposition.NodeDomainGet(nodeNumber2,1)
+        nodeDomain1 = fluidDecomposition.NodeDomainGet(1,nodeNumber1)
+        nodeDomain2 = fluidDecomposition.NodeDomainGet(1,nodeNumber2)
         if (nodeDomain1 == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber1))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
         if (nodeDomain2 == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber2))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
     # Top edge nodes
     for xNodeIdx in range(1,numberOfFluidXNodes1+1):
         nodeNumber = xNodeIdx+numberOfFluidXNodes2*(numberOfSolidYNodes-1)+\
                           (numberOfFluidYNodes-1)*numberOfFluidXNodes1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
-                                                iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+            movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
+                                                oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
-                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
+                movingMeshBoundaryConditions.SetNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.FIXED_WALL,0.0)
     if (debugLevel > 2):
         print('    Moving Wall Boundary conditions:')
     # Left and right solid edge nodes
     for yNodeIdx in range(2,numberOfSolidYNodes):
         nodeNumber1 = (yNodeIdx-1)*numberOfFluidXNodes2+numberOfFluidX1Nodes
         nodeNumber2 = nodeNumber1+1
-        nodeDomain1 = fluidDecomposition.NodeDomainGet(nodeNumber1,1)
-        nodeDomain2 = fluidDecomposition.NodeDomainGet(nodeNumber2,1)
+        nodeDomain1 = fluidDecomposition.NodeDomainGet(1,nodeNumber1)
+        nodeDomain2 = fluidDecomposition.NodeDomainGet(1,nodeNumber2)
         if (nodeDomain1 == computationalNodeNumber):
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,1,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber1,2,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber1))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber1,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
         if (nodeDomain2 == computationalNodeNumber):
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,1,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber2,2,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber2))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber2,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
     # Top solid edge nodes
     for xNodeIdx in range(1,numberOfSolidXNodes+1):
         nodeNumber = xNodeIdx+(numberOfSolidYNodes-1)*numberOfFluidXNodes2+numberOfFluidX1Nodes-1
-        nodeDomain = fluidDecomposition.NodeDomainGet(nodeNumber,1)
+        nodeDomain = fluidDecomposition.NodeDomainGet(1,nodeNumber)
         if (nodeDomain == computationalNodeNumber):
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                iron.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
-                                                iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,1,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+            movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                oc.GlobalDerivativeConstants.NO_GLOBAL_DERIV,nodeNumber,2,
+                                                oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
             if (debugLevel > 2):
                 print('      Node        %d:' % (nodeNumber))
             if (uInterpolation == CUBIC_HERMITE):    
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
-                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,iron.FieldVariableTypes.U,1,
-                                                    iron.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
-                                                    iron.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,1,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
+                movingMeshBoundaryConditions.AddNode(movingMeshDependentField,oc.FieldVariableTypes.U,1,
+                                                    oc.GlobalDerivativeConstants.GLOBAL_DERIV_S1_S2,nodeNumber,2,
+                                                    oc.BoundaryConditionsTypes.MOVED_WALL,0.0)
 
     # Finish moving mesh boundary conditions
     movingMeshSolverEquations.BoundaryConditionsCreateFinish()
